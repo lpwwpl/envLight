@@ -1,0 +1,125 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{35266A0E-5AE8-4DF7-9DB5-27C6ED0AECB4}</ProjectGuid>
+    <Keyword>QtVS_v304</Keyword>
+    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">10.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">10.0</WindowsTargetPlatformVersion>
+    <QtMsBuild Condition="'$(QtMsBuild)'=='' OR !Exists('$(QtMsBuild)\qt.targets')">$(MSBuildProjectDirectory)\QtMsBuild</QtMsBuild>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Condition="Exists('$(QtMsBuild)\qt_defaults.props')">
+    <Import Project="$(QtMsBuild)\qt_defaults.props" />
+  </ImportGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="QtSettings">
+    <QtInstall>5.15.2_msvc2019_64</QtInstall>
+    <QtModules>core</QtModules>
+    <QtBuildConfig>debug</QtBuildConfig>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
+    <QtInstall>5.15.2_msvc2019_64</QtInstall>
+    <QtModules>core;gui;widgets;concurrent</QtModules>
+    <QtBuildConfig>release</QtBuildConfig>
+  </PropertyGroup>
+  <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
+    <Message Importance="High" Text="QtMsBuild: could not locate qt.targets, qt.props; project may not build correctly." />
+  </Target>
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>TINYEXR_USE_PIZ;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(SolutionDir)\3rdparty\tinyexr-3.0.0;$(SolutionDir)\3rdparty\tinyexr-3.0.0\deps\miniz;$(SolutionDir)\3rdparty\vtk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>$(SolutionDir)\x64\Release\vtkWrappingTools-9.1.lib;$(SolutionDir)\x64\Release\vtkViewsQt-9.1.lib;$(SolutionDir)\x64\Release\vtkViewsInfovis-9.1.lib;$(SolutionDir)\x64\Release\vtkViewsContext2D-9.1.lib;$(SolutionDir)\x64\Release\vtkTestingRendering-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingQt-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingVolumeOpenGL2-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingLabel-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingLOD-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingImage-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingContextOpenGL2-9.1.lib;$(SolutionDir)\x64\Release\vtkIOVeraOut-9.1.lib;$(SolutionDir)\x64\Release\vtkIOTecplotTable-9.1.lib;$(SolutionDir)\x64\Release\vtkIOSegY-9.1.lib;$(SolutionDir)\x64\Release\vtkIOParallelXML-9.1.lib;$(SolutionDir)\x64\Release\vtkIOParallel-9.1.lib;$(SolutionDir)\x64\Release\vtkIOPLY-9.1.lib;$(SolutionDir)\x64\Release\vtkIOOggTheora-9.1.lib;$(SolutionDir)\x64\Release\vtktheora-9.1.lib;$(SolutionDir)\x64\Release\vtkogg-9.1.lib;$(SolutionDir)\x64\Release\vtkIONetCDF-9.1.lib;$(SolutionDir)\x64\Release\vtkIOMotionFX-9.1.lib;$(SolutionDir)\x64\Release\vtkIOMINC-9.1.lib;$(SolutionDir)\x64\Release\vtkIOLSDyna-9.1.lib;$(SolutionDir)\x64\Release\vtkIOInfovis-9.1.lib;$(SolutionDir)\x64\Release\vtklibxml2-9.1.lib;$(SolutionDir)\x64\Release\vtkIOImport-9.1.lib;$(SolutionDir)\x64\Release\vtkIOIOSS-9.1.lib;$(SolutionDir)\x64\Release\vtkioss-9.1.lib;$(SolutionDir)\x64\Release\vtkIOHDF-9.1.lib;$(SolutionDir)\x64\Release\vtkIOVideo-9.1.lib;$(SolutionDir)\x64\Release\vtkIOMovie-9.1.lib;$(SolutionDir)\x64\Release\vtkIOExportPDF-9.1.lib;$(SolutionDir)\x64\Release\vtkIOExportGL2PS-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingGL2PSOpenGL2-9.1.lib;$(SolutionDir)\x64\Release\vtkgl2ps-9.1.lib;$(SolutionDir)\x64\Release\vtkIOExport-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingVtkJS-9.1.lib;$(SolutionDir)\x64\Release\vtkIOGeometry-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingSceneGraph-9.1.lib;$(SolutionDir)\x64\Release\vtkIOExodus-9.1.lib;$(SolutionDir)\x64\Release\vtkIOEnSight-9.1.lib;$(SolutionDir)\x64\Release\vtkIOCityGML-9.1.lib;$(SolutionDir)\x64\Release\vtkIOChemistry-9.1.lib;$(SolutionDir)\x64\Release\vtkIOCONVERGECFD-9.1.lib;$(SolutionDir)\x64\Release\vtkIOCGNSReader-9.1.lib;$(SolutionDir)\x64\Release\vtkIOAsynchronous-9.1.lib;$(SolutionDir)\x64\Release\vtkIOAMR-9.1.lib;$(SolutionDir)\x64\Release\vtkInteractionImage-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingStencil-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingStatistics-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingMorphological-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingMath-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingFourier-9.1.lib;$(SolutionDir)\x64\Release\vtkGUISupportQtSQL-9.1.lib;$(SolutionDir)\x64\Release\vtkIOSQL-9.1.lib;$(SolutionDir)\x64\Release\vtksqlite-9.1.lib;$(SolutionDir)\x64\Release\vtkGUISupportQtQuick-9.1.lib;$(SolutionDir)\x64\Release\vtkGUISupportQt-9.1.lib;$(SolutionDir)\x64\Release\vtkGeovisCore-9.1.lib;$(SolutionDir)\x64\Release\vtklibproj-9.1.lib;$(SolutionDir)\x64\Release\vtkInfovisLayout-9.1.lib;$(SolutionDir)\x64\Release\vtkViewsCore-9.1.lib;$(SolutionDir)\x64\Release\vtkInteractionWidgets-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingVolume-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingAnnotation-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingHybrid-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingColor-9.1.lib;$(SolutionDir)\x64\Release\vtkInteractionStyle-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersTopology-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersSelection-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersSMP-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersProgrammable-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersPoints-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersVerdict-9.1.lib;$(SolutionDir)\x64\Release\vtkverdict-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersParallelImaging-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersImaging-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingGeneral-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersHyperTree-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersGeneric-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersFlowPaths-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersAMR-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersParallel-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersTexture-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersModeling-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersHybrid-9.1.lib;$(SolutionDir)\x64\Release\vtkDomainsChemistryOpenGL2-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingOpenGL2-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingUI-9.1.lib;$(SolutionDir)\x64\Release\vtkDomainsChemistry-9.1.lib;$(SolutionDir)\x64\Release\vtkChartsCore-9.1.lib;$(SolutionDir)\x64\Release\vtkInfovisCore-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersExtraction-9.1.lib;$(SolutionDir)\x64\Release\vtkParallelDIY-9.1.lib;$(SolutionDir)\x64\Release\vtkIOXML-9.1.lib;$(SolutionDir)\x64\Release\vtkIOXMLParser-9.1.lib;$(SolutionDir)\x64\Release\vtkexpat-9.1.lib;$(SolutionDir)\x64\Release\vtkParallelCore-9.1.lib;$(SolutionDir)\x64\Release\vtkIOLegacy-9.1.lib;$(SolutionDir)\x64\Release\vtkIOCore-9.1.lib;$(SolutionDir)\x64\Release\vtkdoubleconversion-9.1.lib;$(SolutionDir)\x64\Release\vtklz4-9.1.lib;$(SolutionDir)\x64\Release\vtklzma-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersStatistics-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingSources-9.1.lib;$(SolutionDir)\x64\Release\vtkIOImage-9.1.lib;$(SolutionDir)\x64\Release\vtkDICOMParser-9.1.lib;$(SolutionDir)\x64\Release\vtkmetaio-9.1.lib;$(SolutionDir)\x64\Release\vtktiff-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingContext2D-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingFreeType-9.1.lib;$(SolutionDir)\x64\Release\vtkfreetype-9.1.lib;$(SolutionDir)\x64\Release\vtkRenderingCore-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersSources-9.1.lib;$(SolutionDir)\x64\Release\vtkImagingCore-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersGeometry-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersGeneral-9.1.lib;$(SolutionDir)\x64\Release\vtkfmt-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonComputationalGeometry-9.1.lib;$(SolutionDir)\x64\Release\vtkFiltersCore-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonExecutionModel-9.1.lib;$(SolutionDir)\x64\Release\vtklibharu-9.1.lib;$(SolutionDir)\x64\Release\vtkjsoncpp-9.1.lib;$(SolutionDir)\x64\Release\vtkexodusII-9.1.lib;$(SolutionDir)\x64\Release\vtknetcdf-9.1.lib;$(SolutionDir)\x64\Release\vtkcgns-9.1.lib;$(SolutionDir)\x64\Release\vtkhdf5_hl-9.1.lib;$(SolutionDir)\x64\Release\vtkhdf5-9.1.lib;$(SolutionDir)\x64\Release\vtkglew-9.1.lib;$(SolutionDir)\x64\Release\vtkpng-9.1.lib;$(SolutionDir)\x64\Release\vtkjpeg-9.1.lib;$(SolutionDir)\x64\Release\vtkzlib-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonColor-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonDataModel-9.1.lib;$(SolutionDir)\x64\Release\vtkpugixml-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonSystem-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonMisc-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonTransforms-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonMath-9.1.lib;$(SolutionDir)\x64\Release\vtkkissfft-9.1.lib;$(SolutionDir)\x64\Release\vtkCommonCore-9.1.lib;$(SolutionDir)\x64\Release\vtkloguru-9.1.lib;$(SolutionDir)\x64\Release\vtksys-9.1.lib;$(SolutionDir)\x64\Release\miniz.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
+    <ClCompile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="Configuration">
+    <ClCompile>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <ConformanceMode>true</ConformanceMode>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="mainwindow.cpp" />
+    <ClCompile Include="panorama_processor.cpp" />
+    <ClCompile Include="vtk_scene.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtMoc Include="vtk_scene.h" />
+    <QtMoc Include="mainwindow.h" />
+    <ClInclude Include="panorama_processor.h" />
+    <ClInclude Include="stb_image.h" />
+    <ClInclude Include="stb_image_write.h" />
+    <ClInclude Include="tinyexr.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">
+    <Import Project="$(QtMsBuild)\qt.targets" />
+  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
