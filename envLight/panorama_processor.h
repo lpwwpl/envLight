@@ -6,9 +6,11 @@
 #include <cstdint>
 class QPointF;
 struct sRGB {
-    uint8_t r, g, b;
-    sRGB() : r(0), g(0), b(0) {}
-    sRGB(uint8_t r_, uint8_t g_, uint8_t b_) : r(r_), g(g_), b(b_) {}
+    double r, g, b;
+    sRGB(double r_ = 0.0, double g_ = 0.0, double b_ = 0.0) : r(r_), g(g_), b(b_) {}
+
+    sRGB operator*(double s) const { return sRGB(r * s, g * s, b * s); }
+    sRGB operator+(const sRGB& other) const { return sRGB(r + other.r, g + other.g, b + other.b); }
 };
 
 struct Image {

@@ -103,6 +103,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="environment_light.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="mainwindow.cpp" />
     <ClCompile Include="panorama_processor.cpp" />
@@ -111,6 +112,7 @@
   <ItemGroup>
     <QtMoc Include="vtk_scene.h" />
     <QtMoc Include="mainwindow.h" />
+    <ClInclude Include="environment_light.h" />
     <ClInclude Include="panorama_processor.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="stb_image_write.h" />
