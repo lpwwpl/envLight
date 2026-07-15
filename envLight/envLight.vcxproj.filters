@@ -35,7 +35,16 @@
     <ClCompile Include="vtk_scene.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="environment_light.cpp">
+    <ClCompile Include="SunSky.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="EpwReader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="SkyPolarWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="CIEWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -52,7 +61,16 @@
     <ClInclude Include="panorama_processor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="environment_light.h">
+    <ClInclude Include="VL234f.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="SunSky.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EpwData.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EpwReader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
@@ -61,6 +79,12 @@
       <Filter>Header Files</Filter>
     </QtMoc>
     <QtMoc Include="vtk_scene.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="CIEWidget.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="SkyPolarWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>

@@ -378,29 +378,28 @@ std::vector<QPointF> PanoramaProcessor::computeCornerUVs(
     double origin[3] = { cx, cy, cz };
 
     // 采样辅助函数
-    auto samplePoint = [&](double x, double y) -> std::optional<QPointF> {
+    auto samplePoint = [&](double x, double y, QPointF& result) -> bool {
         double nx = (x - halfW) / focalX;
         double ny = (y - halfH) / focalY;
         double nz = 1.0;
         double len = sqrt(nx * nx + ny * ny + nz * nz);
-        if (len < 1e-6) return std::nullopt;
+        if (len < 1e-6) return false;
         nx /= len; ny /= len; nz /= len;
 
         double wx = R[0][0] * nx + R[0][1] * ny + R[0][2] * nz;
         double wy = R[1][0] * nx + R[1][1] * ny + R[1][2] * nz;
         double wz = R[2][0] * nx + R[2][1] * ny + R[2][2] * nz;
         len = sqrt(wx * wx + wy * wy + wz * wz);
-        if (len < 1e-6) return std::nullopt;
+        if (len < 1e-6) return false;
         wx /= len; wy /= len; wz /= len;
 
         double dir[3] = { wx, wy, wz };
         double u, v;
         if (raySphereIntersection(origin, dir, u, v)) {
-            // 注意：这里不添加镜像，保持与 perspectiveFromPanorama 一致
-            // 如果您的全景图需要镜像，请在此处调整 u, v
-            return QPointF(u, v);
+            result = QPointF(u, v);
+            return true;
         }
-        return std::nullopt;
+        return false;
     };
 
     const int N = 40; // 每条边采样点数（越高越精确，但计算量稍大）
@@ -408,26 +407,30 @@ std::vector<QPointF> PanoramaProcessor::computeCornerUVs(
     // 采样上边缘 (y=0)
     for (int i = 0; i <= N; ++i) {
         double x = i * (outW - 1.0) / N;
-        auto pt = samplePoint(x, 0.0);
-        if (pt) polygon.push_back(*pt);
+        QPointF pt;
+        auto ret = samplePoint(x, 0.0, pt);
+        if (ret) polygon.push_back(pt);
     }
     // 右边缘 (x=outW-1)
     for (int i = 1; i <= N; ++i) {
         double y = i * (outH - 1.0) / N;
-        auto pt = samplePoint(outW - 1.0, y);
-        if (pt) polygon.push_back(*pt);
+        QPointF pt;
+        auto ret = samplePoint(outW - 1.0, y, pt);
+        if (ret) polygon.push_back(pt);
     }
     // 下边缘 (y=outH-1)
     for (int i = N - 1; i >= 0; --i) {
         double x = i * (outW - 1.0) / N;
-        auto pt = samplePoint(x, outH - 1.0);
-        if (pt) polygon.push_back(*pt);
+        QPointF pt;
+        auto ret = samplePoint(x, outH - 1.0,pt);
+        if (ret) polygon.push_back(pt);
     }
     // 左边缘 (x=0)
     for (int i = N - 1; i >= 1; --i) {
         double y = i * (outH - 1.0) / N;
-        auto pt = samplePoint(0.0, y);
-        if (pt) polygon.push_back(*pt);
+        QPointF pt;
+        auto ret = samplePoint(0.0, y,pt);
+        if (ret) polygon.push_back(pt);
     }
 
     // 如果采样点太少（例如全部无交点），返回空

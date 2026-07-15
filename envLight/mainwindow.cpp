@@ -11,6 +11,9 @@
 #include "environment_light.h"
 #include <memory>
 #include <cmath>
+#include <QMenuBar>
+#include <QMenu>
+#include <QAction>
 
 #define M_PI 3.14159265358979323846
 
@@ -49,17 +52,40 @@ Image generateEnvironmentPanorama(const EnvironmentLight& model,
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent), m_hasPanorama(false) {
+    setWindowTitle("Main Application");
+    createMenu();
     setupUI();
     setupConnections();
 }
 
 MainWindow::~MainWindow() {}
 
+void MainWindow::showSkyViewer() {
+    // 每次创建新的 MainWidget 窗口并显示
+    CIEWidget* viewer = new CIEWidget();
+    viewer->setAttribute(Qt::WA_DeleteOnClose); // 关闭时自动删除
+    viewer->show();
+}
+
+void MainWindow::createMenu() {
+    // 创建菜单栏
+    m_menuBar = this->menuBar();
+
+    // 添加 "View" 菜单
+    QMenu* viewMenu = m_menuBar->addMenu("&CIE Sky");
+
+    // 添加一个 Action
+    QAction* skyAction = new QAction("CIE Sky Viewer", this);
+    viewMenu->addAction(skyAction);
+
+    // 连接信号
+    connect(skyAction, &QAction::triggered, this, &MainWindow::showSkyViewer);
+}
+
 void MainWindow::setupUI() {
     QWidget* central = new QWidget(this);
     setCentralWidget(central);
     QHBoxLayout* mainLayout = new QHBoxLayout(central);
-
     // ---------- 左侧面板 ----------
     QWidget* leftPanel = new QWidget(this);
     QVBoxLayout* leftLayout = new QVBoxLayout(leftPanel);
@@ -100,74 +126,82 @@ void MainWindow::setupUI() {
     leftLayout->addWidget(cameraGroup);
 
     // ---------- 环境光源生成分组 ----------
-    QGroupBox* envGroup = new QGroupBox("环境光源生成", this);
-    QFormLayout* envLayout = new QFormLayout(envGroup);
+    //QGroupBox* envGroup = new QGroupBox("环境光源生成", this);
+    //QFormLayout* envLayout = new QFormLayout(envGroup);
 
-    m_modelCombo = new QComboBox(this);
-    m_modelCombo->addItem("CIE 全阴天 (Overcast)");
-    m_modelCombo->addItem("CIE 一般天空 (General)");
-    m_modelCombo->addItem("U.S. Standard Atmosphere 1976");
-    envLayout->addRow("模型:", m_modelCombo);
+    //m_modelCombo = new QComboBox(this);
+    //m_modelCombo->addItem("CIE 全阴天 (Overcast)");
+    //m_modelCombo->addItem("CIE 一般天空 (General)");
+    //m_modelCombo->addItem("U.S. Standard Atmosphere 1976");
+    //envLayout->addRow("模型:", m_modelCombo);
 
-    m_zenithLuminanceSpin = new QDoubleSpinBox(this);
-    m_zenithLuminanceSpin->setRange(0.1, 10000.0);
-    m_zenithLuminanceSpin->setValue(100.0);
-    m_zenithLuminanceSpin->setSingleStep(10.0);
-    envLayout->addRow("天顶辐射度 Lz:", m_zenithLuminanceSpin);
+    //m_zenithLuminanceSpin = new QDoubleSpinBox(this);
+    //m_zenithLuminanceSpin->setRange(0.1, 10000.0);
+    //m_zenithLuminanceSpin->setValue(100.0);
+    //m_zenithLuminanceSpin->setSingleStep(10.0);
+    //envLayout->addRow("天顶辐射度 Lz:", m_zenithLuminanceSpin);
 
-    m_sunThetaSpin = new QDoubleSpinBox(this);
-    m_sunThetaSpin->setRange(0, 90);
-    m_sunThetaSpin->setValue(30);
-    m_sunThetaSpin->setSuffix("°");
-    envLayout->addRow("太阳天顶角:", m_sunThetaSpin);
+    //m_sunThetaSpin = new QDoubleSpinBox(this);
+    //m_sunThetaSpin->setRange(0, 90);
+    //m_sunThetaSpin->setValue(30);
+    //m_sunThetaSpin->setSuffix("°");
+    //envLayout->addRow("太阳天顶角:", m_sunThetaSpin);
 
-    m_sunPhiSpin = new QDoubleSpinBox(this);
-    m_sunPhiSpin->setRange(-180, 180);
-    m_sunPhiSpin->setValue(0);
-    m_sunPhiSpin->setSuffix("°");
-    envLayout->addRow("太阳方位角:", m_sunPhiSpin);
+    //m_sunPhiSpin = new QDoubleSpinBox(this);
+    //m_sunPhiSpin->setRange(-180, 180);
+    //m_sunPhiSpin->setValue(0);
+    //m_sunPhiSpin->setSuffix("°");
+    //envLayout->addRow("太阳方位角:", m_sunPhiSpin);
 
-    m_skyTypeSpin = new QSpinBox(this);
-    m_skyTypeSpin->setRange(1, 15);
-    m_skyTypeSpin->setValue(12);
-    envLayout->addRow("天空类型 (1-15):", m_skyTypeSpin);
+    //m_skyTypeSpin = new QSpinBox(this);
+    //m_skyTypeSpin->setRange(1, 15);
+    //m_skyTypeSpin->setValue(12);
+    //envLayout->addRow("天空类型 (1-15):", m_skyTypeSpin);
 
-    m_altitudeSpin = new QDoubleSpinBox(this);
-    m_altitudeSpin->setRange(0, 100);
-    m_altitudeSpin->setValue(0);
-    m_altitudeSpin->setSuffix(" km");
-    envLayout->addRow("海拔:", m_altitudeSpin);
+    //m_altitudeSpin = new QDoubleSpinBox(this);
+    //m_altitudeSpin->setRange(0, 100);
+    //m_altitudeSpin->setValue(0);
+    //m_altitudeSpin->setSuffix(" km");
+    //envLayout->addRow("海拔:", m_altitudeSpin);
 
-    // 曝光控制
-    m_exposureSpin = new QDoubleSpinBox(this);
-    m_exposureSpin->setRange(0.01, 10.0);
-    m_exposureSpin->setValue(0.5);
-    m_exposureSpin->setSingleStep(0.05);
-    envLayout->addRow("曝光 (Exposure):", m_exposureSpin);
+    //// 曝光控制
+    //m_exposureSpin = new QDoubleSpinBox(this);
+    //m_exposureSpin->setRange(0.01, 10.0);
+    //m_exposureSpin->setValue(0.5);
+    //m_exposureSpin->setSingleStep(0.05);
+    //envLayout->addRow("曝光 (Exposure):", m_exposureSpin);
 
-    // 暖色强度控制 (新增)
-    m_warmIntensitySpin = new QDoubleSpinBox(this);
-    m_warmIntensitySpin->setRange(0.0, 2.0);
-    m_warmIntensitySpin->setValue(1.0);
-    m_warmIntensitySpin->setSingleStep(0.05);
-    envLayout->addRow("暖色强度:", m_warmIntensitySpin);
+    //// 暖色强度控制 (新增)
+    //m_warmIntensitySpin = new QDoubleSpinBox(this);
+    //m_warmIntensitySpin->setRange(0.0, 2.0);
+    //m_warmIntensitySpin->setValue(1.0);
+    //m_warmIntensitySpin->setSingleStep(0.05);
+    //envLayout->addRow("暖色强度:", m_warmIntensitySpin);
 
-    m_generateEnvBtn = new QPushButton("生成环境光全景图", this);
-    envLayout->addRow(m_generateEnvBtn);
+    //m_generateEnvBtn = new QPushButton("生成环境光全景图", this);
+    //envLayout->addRow(m_generateEnvBtn);
 
-    envGroup->setLayout(envLayout);
-    leftLayout->addWidget(envGroup);
+    //envGroup->setLayout(envLayout);
+
+
+    //QVBoxLayout* envLayout = new QVBoxLayout(envGroup);
+
+    //m_cieWidget = new CIEWidget();
+
+    //envLayout->addWidget(m_cieWidget);
+    //envGroup->setLayout(envLayout);
+    //leftLayout->addWidget(envGroup);
 
     leftLayout->addStretch();
     mainLayout->addWidget(leftPanel, 1);
 
-    // 环境光预览（放在左侧底部）
-    m_envPreviewLabel = new QLabel(this);
-    m_envPreviewLabel->setAlignment(Qt::AlignCenter);
-    m_envPreviewLabel->setFixedSize(400, 200);
-    m_envPreviewLabel->setStyleSheet("border: 1px solid gray; background-color: #2a2a2a;");
-    m_envPreviewLabel->setText("未生成环境光");
-    leftLayout->addWidget(m_envPreviewLabel);
+    //// 环境光预览（放在左侧底部）
+    //m_envPreviewLabel = new QLabel(this);
+    //m_envPreviewLabel->setAlignment(Qt::AlignCenter);
+    //m_envPreviewLabel->setFixedSize(400, 200);
+    //m_envPreviewLabel->setStyleSheet("border: 1px solid gray; background-color: #2a2a2a;");
+    //m_envPreviewLabel->setText("未生成环境光");
+    //leftLayout->addWidget(m_envPreviewLabel);
 
     // ---------- 右侧显示区域 ----------
     QVBoxLayout* rightLayout = new QVBoxLayout;
@@ -194,7 +228,7 @@ void MainWindow::setupUI() {
     connect(m_vtkWidget, &VTKSceneWidget::perspectiveViewReady,
         this, &MainWindow::onPerspectiveViewReady);
 
-    onModelChanged(0);
+    //onModelChanged(0);
 }
 
 void MainWindow::setupConnections() {

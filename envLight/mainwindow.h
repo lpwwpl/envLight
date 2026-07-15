@@ -7,8 +7,9 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QComboBox>
-
+#include "CIEWidget.h"
 #include "panorama_processor.h"
+class QMenuBar;
 
 class PanoramaLabel;
 class VTKSceneWidget;
@@ -25,7 +26,8 @@ private slots:
     void onPerspectiveViewReady(const QImage& img);
     void onGenerateEnvironment();
     void onModelChanged(int index);
-
+    void createMenu();
+    void showSkyViewer();
 private:
     void setupUI();
     void setupConnections();
@@ -52,6 +54,9 @@ private:
     QSpinBox* m_outWSpin, * m_outHSpin;
     QPushButton* m_loadBtn;
     QLabel* m_perspectiveLabel;
+
+    CIEWidget* m_cieWidget;
+    QMenuBar* m_menuBar;
 
     Image m_panorama;
     bool m_hasPanorama;
