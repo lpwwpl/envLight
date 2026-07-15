@@ -38,10 +38,13 @@ void SkyPolarWidget::setSubdivisionAngle(double angleDegrees)
     rebuildSkyValues();
     update();
 }
-
+template <class T>
+constexpr const T& clamp(const T& value, const T& low, const T& high) {
+    return (value < low) ? low : (high < value) ? high : value;
+}
 void SkyPolarWidget::setCieSkyType(int type)
 {
-    type = std::clamp(type, 0, 14);
+    type = clamp(type, 0, 14);
     if (m_cieSkyType == type && !m_customMode) return;
     m_cieSkyType = type;
     m_customMode = false;
