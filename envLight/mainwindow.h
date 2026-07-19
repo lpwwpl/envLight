@@ -24,8 +24,6 @@ private slots:
     void onLoadImage();
     void onUpdateParameters();
     void onPerspectiveViewReady(const QImage& img);
-    void onGenerateEnvironment();
-    void onModelChanged(int index);
     void createMenu();
     void showSkyViewer();
 private:
@@ -34,18 +32,6 @@ private:
 
     VTKSceneWidget* m_vtkWidget;
     PanoramaLabel* m_panoramaLabel;
-
-    // 环境光参数控件
-    QComboBox* m_modelCombo;
-    QDoubleSpinBox* m_zenithLuminanceSpin;  // Lz
-    QDoubleSpinBox* m_sunThetaSpin;         // 太阳天顶角
-    QDoubleSpinBox* m_sunPhiSpin;           // 太阳方位角
-    QSpinBox* m_skyTypeSpin;                // 天空类型 (1-15)
-    QDoubleSpinBox* m_altitudeSpin;         // 海拔 (km)
-    QDoubleSpinBox* m_exposureSpin;         // 曝光控制
-    QDoubleSpinBox* m_warmIntensitySpin;    // 暖色强度 (新增)
-    QPushButton* m_generateEnvBtn;
-    QLabel* m_envPreviewLabel;
 
     // 原有相机参数
     QDoubleSpinBox* m_cxSpin, * m_cySpin, * m_czSpin;

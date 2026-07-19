@@ -125,83 +125,8 @@ void MainWindow::setupUI() {
     cameraGroup->setLayout(formLayout);
     leftLayout->addWidget(cameraGroup);
 
-    // ---------- 环境光源生成分组 ----------
-    //QGroupBox* envGroup = new QGroupBox("环境光源生成", this);
-    //QFormLayout* envLayout = new QFormLayout(envGroup);
-
-    //m_modelCombo = new QComboBox(this);
-    //m_modelCombo->addItem("CIE 全阴天 (Overcast)");
-    //m_modelCombo->addItem("CIE 一般天空 (General)");
-    //m_modelCombo->addItem("U.S. Standard Atmosphere 1976");
-    //envLayout->addRow("模型:", m_modelCombo);
-
-    //m_zenithLuminanceSpin = new QDoubleSpinBox(this);
-    //m_zenithLuminanceSpin->setRange(0.1, 10000.0);
-    //m_zenithLuminanceSpin->setValue(100.0);
-    //m_zenithLuminanceSpin->setSingleStep(10.0);
-    //envLayout->addRow("天顶辐射度 Lz:", m_zenithLuminanceSpin);
-
-    //m_sunThetaSpin = new QDoubleSpinBox(this);
-    //m_sunThetaSpin->setRange(0, 90);
-    //m_sunThetaSpin->setValue(30);
-    //m_sunThetaSpin->setSuffix("°");
-    //envLayout->addRow("太阳天顶角:", m_sunThetaSpin);
-
-    //m_sunPhiSpin = new QDoubleSpinBox(this);
-    //m_sunPhiSpin->setRange(-180, 180);
-    //m_sunPhiSpin->setValue(0);
-    //m_sunPhiSpin->setSuffix("°");
-    //envLayout->addRow("太阳方位角:", m_sunPhiSpin);
-
-    //m_skyTypeSpin = new QSpinBox(this);
-    //m_skyTypeSpin->setRange(1, 15);
-    //m_skyTypeSpin->setValue(12);
-    //envLayout->addRow("天空类型 (1-15):", m_skyTypeSpin);
-
-    //m_altitudeSpin = new QDoubleSpinBox(this);
-    //m_altitudeSpin->setRange(0, 100);
-    //m_altitudeSpin->setValue(0);
-    //m_altitudeSpin->setSuffix(" km");
-    //envLayout->addRow("海拔:", m_altitudeSpin);
-
-    //// 曝光控制
-    //m_exposureSpin = new QDoubleSpinBox(this);
-    //m_exposureSpin->setRange(0.01, 10.0);
-    //m_exposureSpin->setValue(0.5);
-    //m_exposureSpin->setSingleStep(0.05);
-    //envLayout->addRow("曝光 (Exposure):", m_exposureSpin);
-
-    //// 暖色强度控制 (新增)
-    //m_warmIntensitySpin = new QDoubleSpinBox(this);
-    //m_warmIntensitySpin->setRange(0.0, 2.0);
-    //m_warmIntensitySpin->setValue(1.0);
-    //m_warmIntensitySpin->setSingleStep(0.05);
-    //envLayout->addRow("暖色强度:", m_warmIntensitySpin);
-
-    //m_generateEnvBtn = new QPushButton("生成环境光全景图", this);
-    //envLayout->addRow(m_generateEnvBtn);
-
-    //envGroup->setLayout(envLayout);
-
-
-    //QVBoxLayout* envLayout = new QVBoxLayout(envGroup);
-
-    //m_cieWidget = new CIEWidget();
-
-    //envLayout->addWidget(m_cieWidget);
-    //envGroup->setLayout(envLayout);
-    //leftLayout->addWidget(envGroup);
-
     leftLayout->addStretch();
     mainLayout->addWidget(leftPanel, 1);
-
-    //// 环境光预览（放在左侧底部）
-    //m_envPreviewLabel = new QLabel(this);
-    //m_envPreviewLabel->setAlignment(Qt::AlignCenter);
-    //m_envPreviewLabel->setFixedSize(400, 200);
-    //m_envPreviewLabel->setStyleSheet("border: 1px solid gray; background-color: #2a2a2a;");
-    //m_envPreviewLabel->setText("未生成环境光");
-    //leftLayout->addWidget(m_envPreviewLabel);
 
     // ---------- 右侧显示区域 ----------
     QVBoxLayout* rightLayout = new QVBoxLayout;
@@ -244,19 +169,10 @@ void MainWindow::setupConnections() {
     connect(m_outWSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onUpdateParameters);
     connect(m_outHSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, &MainWindow::onUpdateParameters);
 
-    connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-        this, &MainWindow::onModelChanged);
-    connect(m_generateEnvBtn, &QPushButton::clicked,
-        this, &MainWindow::onGenerateEnvironment);
-}
-
-void MainWindow::onModelChanged(int index) {
-    bool isGeneral = (index == 1);
-    bool isUSStd = (index == 2);
-    m_sunThetaSpin->setVisible(isGeneral || isUSStd);
-    m_sunPhiSpin->setVisible(isGeneral);
-    m_skyTypeSpin->setVisible(isGeneral);
-    m_altitudeSpin->setVisible(isUSStd);
+    //connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    //    this, &MainWindow::onModelChanged);
+    //connect(m_generateEnvBtn, &QPushButton::clicked,
+    //    this, &MainWindow::onGenerateEnvironment);
 }
 
 void MainWindow::onLoadImage() {
@@ -310,56 +226,3 @@ void MainWindow::onPerspectiveViewReady(const QImage& img) {
     m_perspectiveLabel->setPixmap(pix);
 }
 
-// ---------- 环境光生成 ----------
-void MainWindow::onGenerateEnvironment() {
-    int modelIdx = m_modelCombo->currentIndex();
-    double Lz = m_zenithLuminanceSpin->value();
-    double sunTheta = m_sunThetaSpin->value() * M_PI / 180.0;
-    double sunPhi = m_sunPhiSpin->value() * M_PI / 180.0;
-    int skyType = m_skyTypeSpin->value();
-    double altitude = m_altitudeSpin->value();
-    double exposure = m_exposureSpin->value();
-    double warmIntensity = m_warmIntensitySpin->value();
-
-    std::unique_ptr<EnvironmentLight> model;
-    switch (modelIdx) {
-    case 0: // 全阴天
-        model = std::make_unique<CIEOvercastSky>(Lz);
-        break;
-    case 1: // 一般天空 (使用新的 CIESkyModel)
-    {
-        CieSkyType type = static_cast<CieSkyType>(std::max(1, std::min(skyType, 15)));
-        model = std::make_unique<CIESkyModel>(type, sunTheta, sunPhi, Lz, sRGB(1.0, 1.0, 0.9), warmIntensity);
-        break;
-    }
-    case 2: // US 大气
-        model = std::make_unique<USStandardAtmosphere1976Light>(sunTheta, altitude, 1.0);
-        break;
-    default:
-        return;
-    }
-
-    m_generateEnvBtn->setEnabled(false);
-    m_envPreviewLabel->setText("生成中...");
-
-    const int W = 1024, H = 512;
-    Image img = generateEnvironmentPanorama(*model, W, H, exposure);
-    QImage qimg(img.width, img.height, QImage::Format_RGB888);
-    for (int y = 0; y < img.height; ++y) {
-        for (int x = 0; x < img.width; ++x) {
-            const sRGB& c = img.at(x, y);
-            qimg.setPixel(x, y, qRgb(c.r, c.g, c.b));
-        }
-    }
-
-    if (!qimg.isNull()) {
-        QPixmap pix = QPixmap::fromImage(qimg);
-        pix = pix.scaled(m_envPreviewLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        m_envPreviewLabel->setPixmap(pix);
-    }
-    else {
-        m_envPreviewLabel->setText("生成失败");
-    }
-
-    m_generateEnvBtn->setEnabled(true);
-}
