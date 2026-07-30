@@ -309,7 +309,7 @@ void SkyPolarWidget::drawGrid(QPainter& painter, const QRectF& skyRect)
     for (int alt = 10; alt < 90; alt += 10) {
         double r = radius * (90 - alt) / 90.0;
         painter.drawEllipse(center, r, r);
-        painter.drawText(QPointF(center.x() + 3, center.y() - r + 12), QStringLiteral("%1°").arg(alt));
+        painter.drawText(QPointF(center.x() + 3, center.y() - r + 12), QString::fromUtf8("%1°").arg(alt));
     }
 
     painter.drawLine(QPointF(center.x(), center.y() - radius), QPointF(center.x(), center.y() + radius));
@@ -333,7 +333,7 @@ void SkyPolarWidget::drawAzimuthTicks(QPainter& painter, const QRectF& skyRect)
         painter.drawLine(p0, p1);
         if (major && deg % 90 != 0) {
             QPointF txt(center.x() + (radius + 20) * std::sin(az), center.y() - (radius + 20) * std::cos(az));
-            painter.drawText(QRectF(txt.x() - 20, txt.y() - 10, 40, 20), Qt::AlignCenter, QStringLiteral("%1°").arg(deg));
+            painter.drawText(QRectF(txt.x() - 20, txt.y() - 10, 40, 20), Qt::AlignCenter, QString::fromUtf8("%1°").arg(deg));
         }
     }
 
