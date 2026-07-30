@@ -44,9 +44,9 @@ void SkyPerspectiveWidget::setParameters(
         m_parameters.cameraAzimuthDeg -= 360.0;
 
     m_parameters.cameraPitchDeg =
-        clamp(m_parameters.cameraPitchDeg, -89.0, 89.0);
+        clamp(m_parameters.cameraPitchDeg, -89.9, 89.9);
     m_parameters.verticalFovDeg =
-        clamp(m_parameters.verticalFovDeg, 10.0, 170.0);
+        clamp(m_parameters.verticalFovDeg, 0, 179.9);
 
     m_parameters.targetValue =
         std::max(0.0, m_parameters.targetValue);
@@ -718,8 +718,8 @@ void SkyPerspectiveWidget::mouseMoveEvent(
         clamp(
             m_parameters.cameraPitchDeg
                 + delta.y() * 0.20,
-            -89.0,
-            89.0);
+            -89.9,
+            89.9);
 
     rebuildPreview();
     update();
@@ -740,8 +740,8 @@ void SkyPerspectiveWidget::wheelEvent(
         clamp(
             m_parameters.verticalFovDeg
                 - steps * 5.0,
-            10.0,
-            170.0);
+            0,
+            179.9);
 
     rebuildPreview();
     update();

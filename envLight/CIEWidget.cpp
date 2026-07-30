@@ -297,27 +297,27 @@ void CIEWidget::setupUI()
         0.0,
         359.9);
     m_cameraAzimuthSpin->setDecimals(1);
-    m_cameraAzimuthSpin->setSingleStep(5.0);
+    m_cameraAzimuthSpin->setSingleStep(1.0);
     m_cameraAzimuthSpin->setSuffix("°");
     m_cameraAzimuthSpin->setValue(180.0);
 
     m_cameraAltitudeSpin =
         new QDoubleSpinBox;
     m_cameraAltitudeSpin->setRange(
-        -89.0,
-        89.0);
+        -89.9,
+        89.9);
     m_cameraAltitudeSpin->setDecimals(1);
-    m_cameraAltitudeSpin->setSingleStep(5.0);
+    m_cameraAltitudeSpin->setSingleStep(1.0);
     m_cameraAltitudeSpin->setSuffix("°");
     m_cameraAltitudeSpin->setValue(20.0);
 
     m_cameraFovSpin =
         new QDoubleSpinBox;
     m_cameraFovSpin->setRange(
-        10.0,
-        170.0);
+        0,
+        179.9);
     m_cameraFovSpin->setDecimals(1);
-    m_cameraFovSpin->setSingleStep(5.0);
+    m_cameraFovSpin->setSingleStep(1.0);
     m_cameraFovSpin->setSuffix("°");
     m_cameraFovSpin->setValue(90.0);
 
