@@ -1,110 +1,319 @@
 #include "SunSky.hpp"
-#include <cmath>
+
 #include <algorithm>
+#include <cmath>
 
 namespace SSLib {
 
-    // ---------- 常量 ----------
-    constexpr float PI = 3.14159265358979323846f;
-    constexpr float DEG2RAD = PI / 180.0f;
-    constexpr float RAD2DEG = 180.0f / PI;
+namespace {
 
-    // ---------- 标准天空系数表 (15 种，0 基索引) ----------
-    static const float kCoeffs[15][5] = {
-        // A       B       C       D       E
-        { 4.000f, -0.700f,  0.000f, -1.000f,  0.000f }, // 0  CIE Standard Overcast Sky
-        { 4.000f, -0.700f,  2.000f, -0.800f,  0.000f }, // 1  Overcast steep grade some sun
-        { 2.500f, -0.500f,  1.500f, -0.900f,  0.000f }, // 2  Overcast moderate grade no sun
-        { 2.500f, -0.500f,  0.800f, -0.800f,  0.000f }, // 3  Overcast moderate grade some sun
-        { 1.100f, -0.800f,  0.000f, -0.500f,  0.000f }, // 4  CIE Standard Uniform Sky
-        { 0.000f, -0.500f,  1.500f, -0.600f,  0.000f }, // 5  Partly cloudy no grade some sun
-        { 1.000f, -0.500f,  1.200f, -0.600f,  0.000f }, // 6  Partly cloudy no grade some sun
-        { 0.500f, -0.300f,  2.500f, -0.600f,  0.000f }, // 7  Partly cloudy no grade distinct corona
-        { 0.500f, -0.300f,  1.000f, -0.500f,  0.000f }, // 8  Partly cloudy obscured sun
-        { 0.500f, -0.300f,  5.000f, -0.500f,  0.000f }, // 9  Partly cloudy circumscalar region
-        { 1.100f, -0.400f,  2.000f, -0.700f,  0.000f }, // 10 White-blue sky distinct corona
-        { 1.100f, -0.400f,  4.500f, -0.800f,  0.000f }, // 11 CIE Standard Clear Sky low turbidity
-        { 1.100f, -0.500f,  4.500f, -0.800f,  0.000f }, // 12 CIE Standard Clear Sky some pollution
-        { 0.500f, -0.500f,  6.000f, -0.700f,  0.000f }, // 13 Cloudless turbid sky broad corona
-        { 0.500f, -0.500f,  6.000f, -0.600f,  0.000f }  // 14 White-blue turbid sky broad corona
+constexpr float PI =
+    3.14159265358979323846f;
+constexpr float HALF_PI = PI * 0.5f;
+constexpr float DEG2RAD = PI / 180.0f;
+
+// CIE S 011/E:2003 / ISO 15469:2004.
+// Rows are CIE sky types 1-15; API remains 0-based.
+const float kCoefficients[15][5] = {
+    // a,     b,      c,     d,      e
+    { 4.0f,  -0.70f,  0.0f, -1.0f,  0.00f }, // 1
+    { 4.0f,  -0.70f,  2.0f, -1.5f,  0.15f }, // 2
+    { 1.1f,  -0.80f,  0.0f, -1.0f,  0.00f }, // 3
+    { 1.1f,  -0.80f,  2.0f, -1.5f,  0.15f }, // 4
+    { 0.0f,  -1.00f,  0.0f, -1.0f,  0.00f }, // 5
+    { 0.0f,  -1.00f,  2.0f, -1.5f,  0.15f }, // 6
+    { 0.0f,  -1.00f,  5.0f, -2.5f,  0.30f }, // 7
+    { 0.0f,  -1.00f, 10.0f, -3.0f,  0.45f }, // 8
+    {-1.0f,  -0.55f,  2.0f, -1.5f,  0.15f }, // 9
+    {-1.0f,  -0.55f,  5.0f, -2.5f,  0.30f }, // 10
+    {-1.0f,  -0.55f, 10.0f, -3.0f,  0.45f }, // 11
+    {-1.0f,  -0.32f, 10.0f, -3.0f,  0.45f }, // 12
+    {-1.0f,  -0.32f, 16.0f, -3.0f,  0.30f }, // 13
+    {-1.0f,  -0.15f, 16.0f, -3.0f,  0.30f }, // 14
+    {-1.0f,  -0.15f, 24.0f, -2.8f,  0.15f }  // 15
+};
+
+float clampFloat(
+    float value,
+    float low,
+    float high)
+{
+    return std::max(
+        low,
+        std::min(value, high));
+}
+
+float vectorLength(const Vec3f& value)
+{
+    return std::sqrt(
+        value.v[0] * value.v[0]
+        + value.v[1] * value.v[1]
+        + value.v[2] * value.v[2]);
+}
+
+Vec3f normalized(const Vec3f& value)
+{
+    const float length = vectorLength(value);
+
+    if (length <= 1.0e-8f)
+        return {0.0f, 0.0f, 1.0f};
+
+    return {
+        value.v[0] / length,
+        value.v[1] / length,
+        value.v[2] / length
     };
+}
 
-    // ---------- Perez 相对亮度函数 ----------
-    static float CIELumRatio(const Vec3f& direction, const Vec3f& toSun,
-        float a, float b, float c, float d, float e)
-    {
-        const float cosTheta = std::max(0.001f, direction.v[2]);
-        const float cosThetaZ = std::max(0.001f, toSun.v[2]);
+float luminanceGradation(
+    float zenithAngle,
+    float a,
+    float b)
+{
+    if (zenithAngle >= HALF_PI)
+        return 1.0f;
 
-        // 天空点与太阳夹角 gamma
-        const float cosGamma = std::max(-1.0f, std::min(1.0f, direction.dot(toSun)));
-        const float gamma = std::acos(cosGamma);
+    const float cosZenith =
+        std::max(
+            1.0e-5f,
+            std::cos(zenithAngle));
 
-        const float numerator = (1.0f + a * std::exp(b / cosTheta))
-            * (1.0f + c * std::exp(d * gamma) + e * cosGamma * cosGamma);
+    return 1.0f
+        + a * std::exp(b / cosZenith);
+}
 
-        const float denominator = (1.0f + a * std::exp(b))
-            * (1.0f + c * std::exp(d * std::acos(cosThetaZ)) + e * cosThetaZ * cosThetaZ);
+float scatteringIndicatrix(
+    float angularDistance,
+    float c,
+    float d,
+    float e)
+{
+    const float cosine =
+        std::cos(angularDistance);
 
-        return numerator / denominator;
-    }
+    // Standard form:
+    // 1 + c[exp(d*chi) - exp(d*pi/2)] + e*cos^2(chi)
+    return 1.0f
+        + c * (
+            std::exp(d * angularDistance)
+            - std::exp(d * HALF_PI))
+        + e * cosine * cosine;
+}
 
-    // ---------- 太阳位置计算 ----------
-    Vec3f SunDirection(float decimalHour, float timeZone, int dayOfYear,
-        float latitudeDeg, float longitudeDeg)
-    {
-        // 简化太阳位置算法（精度约 1°）
-        const float latRad = latitudeDeg * DEG2RAD;
+float relativeLuminance(
+    const Vec3f& rawDirection,
+    const Vec3f& rawSunDirection,
+    float a,
+    float b,
+    float c,
+    float d,
+    float e)
+{
+    const Vec3f direction =
+        normalized(rawDirection);
+    const Vec3f sunDirection =
+        normalized(rawSunDirection);
 
-        // 太阳赤纬 (度)
-        const float declination = 23.44f * std::sin((284 + dayOfYear) * 360.0f / 365.0f * DEG2RAD);
+    if (direction.v[2] <= 0.0f)
+        return 0.0f;
 
-        // 时角 (度)
-        const float hourAngle = (decimalHour - 12.0f) * 15.0f;
+    const float zenithAngle =
+        std::acos(
+            clampFloat(
+                direction.v[2],
+                -1.0f,
+                1.0f));
 
-        const float decRad = declination * DEG2RAD;
-        const float haRad = hourAngle * DEG2RAD;
+    const float sunZenithAngle =
+        std::acos(
+            clampFloat(
+                sunDirection.v[2],
+                -1.0f,
+                1.0f));
 
-        const float sinAlt = std::sin(latRad) * std::sin(decRad)
-            + std::cos(latRad) * std::cos(decRad) * std::cos(haRad);
-        const float altitude = std::asin(std::max(-1.0f, std::min(1.0f, sinAlt)));
+    const float cosineDistance =
+        clampFloat(
+            direction.dot(sunDirection),
+            -1.0f,
+            1.0f);
 
-        const float cosAz = (std::sin(decRad) - std::sin(latRad) * sinAlt)
-            / (std::cos(latRad) * std::cos(altitude));
-        float azimuth = std::acos(std::max(-1.0f, std::min(1.0f, cosAz)));
-        if (std::sin(haRad) > 0.0f) azimuth = -azimuth; // 下午为负
+    const float angularDistance =
+        std::acos(cosineDistance);
 
-        // 坐标系：X 东，Y 北，Z 天顶
-        const float cosAlt = std::cos(altitude);
-        const Vec3f dir = {
-            cosAlt * std::sin(azimuth),
-            cosAlt * std::cos(azimuth),
-            std::sin(altitude)
-        };
-        return dir;
-    }
+    const float numerator =
+        luminanceGradation(
+            zenithAngle,
+            a,
+            b)
+        * scatteringIndicatrix(
+            angularDistance,
+            c,
+            d,
+            e);
 
-    // ---------- 标准天空 ----------
-    float CIEStandardSky(int type, const Vec3f& direction, const Vec3f& toSun, float zenithValue)
-    {
-        if (type < 0 || type >= 15) type = 0;
-        const float* coeff = kCoeffs[type];
-        return CIELumRatio(direction, toSun, coeff[0], coeff[1], coeff[2], coeff[3], coeff[4]) * zenithValue;
-    }
+    const float denominator =
+        luminanceGradation(
+            0.0f,
+            a,
+            b)
+        * scatteringIndicatrix(
+            sunZenithAngle,
+            c,
+            d,
+            e);
 
-    // ---------- 系数提取 ----------
-    CIESkyCoefficients CIEStandardSkyCoefficients(int type)
-    {
-        if (type < 0 || type >= 15) type = 0;
-        const float* coeff = kCoeffs[type];
-        return { coeff[0], coeff[1], coeff[2], coeff[3], coeff[4] };
-    }
+    if (std::abs(denominator) <= 1.0e-8f)
+        return 0.0f;
 
-    // ---------- 自定义系数天空 ----------
-    float CIECustomSky(const CIESkyCoefficients& coeff, const Vec3f& direction,
-        const Vec3f& toSun, float zenithValue)
-    {
-        return CIELumRatio(direction, toSun, coeff.a, coeff.b, coeff.c, coeff.d, coeff.e) * zenithValue;
-    }
+    return std::max(
+        0.0f,
+        numerator / denominator);
+}
+
+} // namespace
+
+Vec3f SunDirection(
+    float decimalHour,
+    float timeZone,
+    int dayOfYear,
+    float latitudeDeg,
+    float longitudeDeg)
+{
+    const float latitude =
+        latitudeDeg * DEG2RAD;
+
+    // Fractional year and NOAA-style engineering approximation.
+    const float gamma =
+        2.0f * PI / 365.0f
+        * (
+            static_cast<float>(dayOfYear - 1)
+            + (decimalHour - 12.0f) / 24.0f);
+
+    const float equationOfTime =
+        229.18f
+        * (
+            0.000075f
+            + 0.001868f * std::cos(gamma)
+            - 0.032077f * std::sin(gamma)
+            - 0.014615f * std::cos(2.0f * gamma)
+            - 0.040849f * std::sin(2.0f * gamma));
+
+    const float declination =
+        0.006918f
+        - 0.399912f * std::cos(gamma)
+        + 0.070257f * std::sin(gamma)
+        - 0.006758f * std::cos(2.0f * gamma)
+        + 0.000907f * std::sin(2.0f * gamma)
+        - 0.002697f * std::cos(3.0f * gamma)
+        + 0.001480f * std::sin(3.0f * gamma);
+
+    float trueSolarMinutes =
+        decimalHour * 60.0f
+        + equationOfTime
+        + 4.0f * longitudeDeg
+        - 60.0f * timeZone;
+
+    while (trueSolarMinutes < 0.0f)
+        trueSolarMinutes += 1440.0f;
+
+    while (trueSolarMinutes >= 1440.0f)
+        trueSolarMinutes -= 1440.0f;
+
+    const float hourAngle =
+        (
+            trueSolarMinutes / 4.0f
+            - 180.0f)
+        * DEG2RAD;
+
+    const float cosDeclination =
+        std::cos(declination);
+    const float sinDeclination =
+        std::sin(declination);
+    const float cosLatitude =
+        std::cos(latitude);
+    const float sinLatitude =
+        std::sin(latitude);
+    const float cosHourAngle =
+        std::cos(hourAngle);
+    const float sinHourAngle =
+        std::sin(hourAngle);
+
+    // Local East-North-Up coordinates.
+    const float east =
+        -cosDeclination * sinHourAngle;
+
+    const float north =
+        cosLatitude * sinDeclination
+        - sinLatitude
+            * cosDeclination
+            * cosHourAngle;
+
+    const float up =
+        sinLatitude * sinDeclination
+        + cosLatitude
+            * cosDeclination
+            * cosHourAngle;
+
+    const Vec3f direction = {east, north, up};
+    return normalized(direction);
+}
+
+float CIEStandardSky(
+    int type,
+    const Vec3f& direction,
+    const Vec3f& toSun,
+    float zenithValue)
+{
+    if (type < 0 || type >= 15)
+        type = 0;
+
+    const float* coefficients =
+        kCoefficients[type];
+
+    return relativeLuminance(
+        direction,
+        toSun,
+        coefficients[0],
+        coefficients[1],
+        coefficients[2],
+        coefficients[3],
+        coefficients[4])
+        * zenithValue;
+}
+
+CIESkyCoefficients
+CIEStandardSkyCoefficients(int type)
+{
+    if (type < 0 || type >= 15)
+        type = 0;
+
+    const float* coefficients =
+        kCoefficients[type];
+
+    return {
+        coefficients[0],
+        coefficients[1],
+        coefficients[2],
+        coefficients[3],
+        coefficients[4]
+    };
+}
+
+float CIECustomSky(
+    const CIESkyCoefficients& coefficients,
+    const Vec3f& direction,
+    const Vec3f& toSun,
+    float zenithValue)
+{
+    return relativeLuminance(
+        direction,
+        toSun,
+        coefficients.a,
+        coefficients.b,
+        coefficients.c,
+        coefficients.d,
+        coefficients.e)
+        * zenithValue;
+}
 
 } // namespace SSLib

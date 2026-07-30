@@ -1,67 +1,191 @@
 #include "EpwReader.h"
-#include <QFile>
-#include <QTextStream>
-#include <QDebug>
 
-bool EpwReader::read(const QString& filePath, EpwDocument& doc)
+#include <QDebug>
+#include <QFile>
+#include <QStringList>
+#include <QTextStream>
+
+#include <cmath>
+#include <limits>
+
+namespace {
+
+double parseNumber(
+    const QStringList& fields,
+    int index,
+    double missingAtOrAbove)
+{
+    if (index < 0 || index >= fields.size())
+        return std::numeric_limits<double>::quiet_NaN();
+
+    bool ok = false;
+    const double value =
+        fields[index].trimmed().toDouble(&ok);
+
+    if (!ok ||
+        !std::isfinite(value) ||
+        value >= missingAtOrAbove) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+
+    return value;
+}
+
+int parsePositiveInteger(
+    const QString& text,
+    int fallback)
+{
+    bool ok = false;
+    const int value =
+        text.trimmed().toInt(&ok);
+
+    return ok && value > 0
+        ? value
+        : fallback;
+}
+
+} // namespace
+
+bool EpwReader::read(
+    const QString& filePath,
+    EpwDocument& document)
 {
     QFile file(filePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qWarning() << "Cannot open EPW file:" << filePath;
+
+    if (!file.open(
+            QIODevice::ReadOnly
+            | QIODevice::Text)) {
+        qWarning()
+            << "Cannot open EPW file:"
+            << filePath;
         return false;
     }
 
-    QTextStream in(&file);
-    doc.records.clear();
+    QTextStream input(&file);
+    document = EpwDocument();
 
-    // 读取头 8 行
     QStringList headers;
-    for (int i = 0; i < 8; ++i) {
-        if (in.atEnd()) return false;
-        headers << in.readLine();
+
+    for (int index = 0; index < 8; ++index) {
+        if (input.atEnd()) {
+            qWarning()
+                << "Incomplete EPW header:"
+                << filePath;
+            return false;
+        }
+
+        headers << input.readLine();
     }
 
-    // 解析第 1 行：地点信息
-    const QString& locLine = headers[0];
-    QStringList parts = locLine.split(',');
-    if (parts.size() >= 7) {
-        doc.location.city = parts[0];
-        doc.location.latitude = parts[1].toDouble();
-        doc.location.longitude = parts[2].toDouble();
-        doc.location.timeZone = parts[3].toDouble();
-        doc.location.elevation = parts[4].toDouble();
+    // LOCATION,city,state,country,source,WMO,
+    // latitude,longitude,timeZone,elevation
+    const QStringList location =
+        headers[0].split(',');
+
+    if (location.size() < 10 ||
+        location[0].trimmed().compare(
+            "LOCATION",
+            Qt::CaseInsensitive) != 0) {
+        qWarning()
+            << "Invalid EPW LOCATION header:"
+            << headers[0];
+        return false;
     }
 
-    // 判断记录频率：检查第 9 行是否有子小时数据（通过 minute 列判断）
-    // 这里简化，默认每小时一条记录
-    doc.recordsPerHour = 1;
+    document.location.city =
+        location[1].trimmed();
+    document.location.stateProvince =
+        location[2].trimmed();
+    document.location.country =
+        location[3].trimmed();
+    document.location.source =
+        location[4].trimmed();
+    document.location.wmo =
+        location[5].trimmed();
+    document.location.latitude =
+        location[6].trimmed().toDouble();
+    document.location.longitude =
+        location[7].trimmed().toDouble();
+    document.location.timeZone =
+        location[8].trimmed().toDouble();
+    document.location.elevation =
+        location[9].trimmed().toDouble();
 
-    // 读取数据体
-    while (!in.atEnd()) {
-        QString line = in.readLine();
-        if (line.trimmed().isEmpty()) continue;
-        QStringList fields = line.split(',');
+    // DATA PERIODS,nPeriods,recordsPerHour,...
+    const QStringList dataPeriods =
+        headers[7].split(',');
 
-        if (fields.size() < 35) continue; // EPW 至少 35 列
+    if (dataPeriods.size() >= 3 &&
+        dataPeriods[0].trimmed().compare(
+            "DATA PERIODS",
+            Qt::CaseInsensitive) == 0) {
 
-        EpwRecord rec;
-        rec.year = fields[0].toInt();
-        rec.month = fields[1].toInt();
-        rec.day = fields[2].toInt();
-        rec.hour = fields[3].toInt();
-        rec.minute = fields[4].toInt();
-
-        // 散射辐射 (列 14, 0-based index=14)
-        rec.dhi = fields[14].toDouble();
-        // 直射辐射 (列 15)
-        rec.dni = fields[15].toDouble();
-        // 干球温度 (列 6)
-        rec.dryBulb = fields[6].toDouble();
-
-        doc.records.push_back(rec);
+        document.recordsPerHour =
+            parsePositiveInteger(
+                dataPeriods[2],
+                1);
     }
 
-    // 如果记录条数是 8760 或 8760*子小时，可自动检测
-    // 这里不自动调整 recordsPerHour，默认 1
+    while (!input.atEnd()) {
+        const QString line =
+            input.readLine();
+
+        if (line.trimmed().isEmpty())
+            continue;
+
+        const QStringList fields =
+            line.split(',');
+
+        if (fields.size() < 35)
+            continue;
+
+        EpwRecord record;
+
+        record.year =
+            fields[0].trimmed().toInt();
+        record.month =
+            fields[1].trimmed().toInt();
+        record.day =
+            fields[2].trimmed().toInt();
+        record.hour =
+            fields[3].trimmed().toInt();
+        record.minute =
+            fields[4].trimmed().toInt();
+
+        record.dryBulb =
+            parseNumber(fields, 6, 99.9);
+
+        // Standard EPW zero-based indexes.
+        record.ghi =
+            parseNumber(fields, 13, 9999.0);
+        record.dni =
+            parseNumber(fields, 14, 9999.0);
+        record.dhi =
+            parseNumber(fields, 15, 9999.0);
+
+        record.globalHorizontalIlluminance =
+            parseNumber(fields, 16, 999900.0);
+        record.directNormalIlluminance =
+            parseNumber(fields, 17, 999900.0);
+        record.diffuseHorizontalIlluminance =
+            parseNumber(fields, 18, 999900.0);
+        record.zenithLuminance =
+            parseNumber(fields, 19, 9999.0);
+
+        record.totalSkyCover =
+            parseNumber(fields, 22, 99.0);
+        record.opaqueSkyCover =
+            parseNumber(fields, 23, 99.0);
+
+        document.records.push_back(record);
+    }
+
+    if (document.records.isEmpty()) {
+        qWarning()
+            << "No valid EPW records:"
+            << filePath;
+        return false;
+    }
+
     return true;
 }

@@ -47,6 +47,9 @@
     <ClCompile Include="CIEWidget.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SkyPerspectiveWidget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stb_image.h">
@@ -85,6 +88,9 @@
       <Filter>Header Files</Filter>
     </QtMoc>
     <QtMoc Include="SkyPolarWidget.h">
+      <Filter>Header Files</Filter>
+    </QtMoc>
+    <QtMoc Include="SkyPerspectiveWidget.h">
       <Filter>Header Files</Filter>
     </QtMoc>
   </ItemGroup>

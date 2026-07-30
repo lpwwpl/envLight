@@ -183,6 +183,7 @@ set(SOURCES
     envLight/panorama_processor.cpp
     envLight/mainwindow.cpp
 	envLight/main.cpp
+    envLight/SkyPerspectiveWidget.cpp
     envLight/EpwReader.cpp
     envLight/CIEWidget.cpp
 )
@@ -197,6 +198,7 @@ set(HEADERS
     envLight/stb_image_write.h
     envLight/SkyPolarWidget.h
     envLight/panorama_processor.h
+    envLight/SkyPerspectiveWidget.h
     envLight/mainwindow.h
     envLight/EpwReader.h
     envLight/EpwData.hpp
