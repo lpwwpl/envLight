@@ -182,7 +182,8 @@ set(SOURCES
     envLight/SkyPolarWidget.cpp
     envLight/panorama_processor.cpp
     envLight/mainwindow.cpp
-	envLight/main.cpp
+    envLight/main.cpp
+    envLight/WeatherEffects.cpp
     envLight/SkyPerspectiveWidget.cpp
     envLight/EpwReader.cpp
     envLight/CIEWidget.cpp
@@ -196,6 +197,7 @@ set(HEADERS
     envLight/SunSky.hpp
     envLight/stb_image.h
     envLight/stb_image_write.h
+    envLight/WeatherEffects.h
     envLight/SkyPolarWidget.h
     envLight/panorama_processor.h
     envLight/SkyPerspectiveWidget.h

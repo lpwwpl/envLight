@@ -154,6 +154,10 @@ bool EpwReader::read(
 
         record.dryBulb =
             parseNumber(fields, 6, 99.9);
+        record.dewPoint =
+            parseNumber(fields, 7, 99.9);
+        record.relativeHumidity =
+            parseNumber(fields, 8, 999.0);
 
         // Standard EPW zero-based indexes.
         record.ghi =
@@ -172,10 +176,47 @@ bool EpwReader::read(
         record.zenithLuminance =
             parseNumber(fields, 19, 9999.0);
 
+        record.windDirection =
+            parseNumber(fields, 20, 999.0);
+        record.windSpeed =
+            parseNumber(fields, 21, 999.0);
         record.totalSkyCover =
             parseNumber(fields, 22, 99.0);
         record.opaqueSkyCover =
             parseNumber(fields, 23, 99.0);
+        record.visibility =
+            parseNumber(fields, 24, 9999.0);
+        record.ceilingHeight =
+            parseNumber(fields, 25, 99999.0);
+
+        bool observationOk = false;
+        record.presentWeatherObservation =
+            fields[26].trimmed().toInt(&observationOk);
+        if (!observationOk)
+            record.presentWeatherObservation = 9;
+
+        record.presentWeatherCodes =
+            fields[27].trimmed();
+        if (record.presentWeatherCodes.size() < 9)
+            record.presentWeatherCodes = QStringLiteral("999999999");
+        else
+            record.presentWeatherCodes =
+                record.presentWeatherCodes.left(9);
+
+        record.precipitableWater =
+            parseNumber(fields, 28, 999.0);
+        record.aerosolOpticalDepth =
+            parseNumber(fields, 29, 0.999);
+        record.snowDepth =
+            parseNumber(fields, 30, 999.0);
+        record.daysSinceLastSnowfall =
+            parseNumber(fields, 31, 99.0);
+        record.albedo =
+            parseNumber(fields, 32, 999.0);
+        record.liquidPrecipitationDepth =
+            parseNumber(fields, 33, 999.0);
+        record.liquidPrecipitationQuantity =
+            parseNumber(fields, 34, 99.0);
 
         document.records.push_back(record);
     }

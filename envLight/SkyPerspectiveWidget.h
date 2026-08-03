@@ -8,6 +8,10 @@
 #include <QWidget>
 
 #include "SunSky.hpp"
+#include "WeatherEffects.h"
+
+class QPainter;
+class QTimer;
 
 enum class SkyAbsoluteScaleMode {
     ZenithLuminance,              // cd/m2
@@ -31,14 +35,11 @@ struct SkyPerspectiveParameters {
     bool customCoefficients = false;
     SSLib::CIESkyCoefficients coefficients;
 
-    // Absolute calibration of the diffuse sky.
     SkyAbsoluteScaleMode scaleMode =
         SkyAbsoluteScaleMode::DiffuseHorizontalIrradiance;
     double targetValue = 100.0;
 
-    // Direct normal irradiance or illuminance. Its unit must match scaleMode:
-    // - Irradiance mode: W/m2
-    // - Illuminance / luminance mode: lx
+    // W/m2 in irradiance mode, lx in photometric modes.
     double directNormalValue = 600.0;
 
     QVector3D sunDirection{0.5f, -0.5f, 0.7071f};
@@ -48,7 +49,6 @@ struct SkyPerspectiveParameters {
     double cameraPitchDeg = 20.0;
     double verticalFovDeg = 90.0;
 
-    // Display-only controls. They never modify the physical sky values.
     SkyColorMode colorMode = SkyColorMode::NaturalPreview;
     SkyToneMapMode toneMapMode = SkyToneMapMode::FixedReference;
     double displayReferenceValue = 50.0;
@@ -59,6 +59,14 @@ struct SkyPerspectiveParameters {
     bool showSunDisk = true;
     bool showSunGlow = true;
     double sunAngularRadiusDeg = 0.2665;
+
+    // Weather is a visual layer driven by EPW. It does not change the CIE
+    // mathematical sky distribution; it attenuates the preview and adds
+    // rain/snow/fog/ground-snow cues on top of that distribution.
+    WeatherVisualState weather;
+    bool animateWeather = true;
+    bool showWeatherParticles = true;
+    bool showWeatherGround = true;
 };
 
 class SkyPerspectiveWidget final : public QWidget
@@ -87,13 +95,23 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
 
+private slots:
+    void advanceWeatherAnimation();
+
 private:
     void rebuildPreview();
+
+    QImage renderBaseImage(const QSize& imageSize) const;
+    void drawWeatherOverlay(
+        QPainter& painter,
+        const QRectF& targetRect,
+        double animationSeconds) const;
 
     double relativeSkyValue(const QVector3D& direction) const;
     double absoluteScale() const;
     double toneMappedValue(double value, double referenceValue) const;
     double clearSkyFactor() const;
+    double atmosphericAttenuation() const;
 
     QVector3D cameraRay(
         int x, int y, int width, int height) const;
@@ -104,8 +122,13 @@ private:
         double sunCosine,
         double directStrength) const;
 
+    QColor applyWeatherAtmosphere(const QColor& color) const;
+    QColor groundColor() const;
+    bool weatherNeedsAnimation() const;
+
     static QColor falseColor(double normalized);
     static double clamp(double value, double low, double high);
+    static double hash01(int index, int salt);
     static QVector3D mix(
         const QVector3D& a,
         const QVector3D& b,
@@ -115,6 +138,8 @@ private:
     SkyPerspectiveParameters m_parameters;
     QImage m_preview;
     QPoint m_lastMousePosition;
+    QTimer* m_weatherTimer = nullptr;
+    double m_animationSeconds = 0.0;
 };
 
 #endif // SKYPERSPECTIVEWIDGET_H

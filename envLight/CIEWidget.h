@@ -36,6 +36,7 @@ private slots:
     void onRenderTimeout();
     void onPerspectiveControlsChanged();
     void onScaleModeChanged();
+    void onWeatherModeChanged();
     void onResetCamera();
     void onExportPerspective();
 
@@ -58,6 +59,8 @@ private:
 
     void updatePerspectiveView();
     void updateScaleInputsFromCurrentRecord();
+    void updateWeatherInputsFromCurrentRecord();
+    WeatherVisualState selectedWeatherState() const;
 
 private:
     SkyPolarWidget* m_skyWidget = nullptr;
@@ -94,6 +97,13 @@ private:
     QCheckBox* m_showSunGlowCheck = nullptr;
     QCheckBox* m_showHorizonCheck = nullptr;
 
+    QComboBox* m_weatherModeCombo = nullptr;
+    QDoubleSpinBox* m_weatherIntensitySpin = nullptr;
+    QCheckBox* m_animateWeatherCheck = nullptr;
+    QCheckBox* m_showWeatherParticlesCheck = nullptr;
+    QCheckBox* m_showWeatherGroundCheck = nullptr;
+    QLabel* m_weatherStatusLabel = nullptr;
+
     QPushButton* m_resetCameraButton = nullptr;
     QPushButton* m_exportButton = nullptr;
 
@@ -116,6 +126,7 @@ private:
     double m_currentDiffuseIlluminance = 10000.0;
     double m_currentDirectIlluminance = 70000.0;
     double m_currentZenithLuminance = 5000.0;
+    WeatherVisualState m_currentWeather;
 };
 
 #endif // CIEWIDGET_H

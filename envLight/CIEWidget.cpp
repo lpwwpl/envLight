@@ -89,8 +89,10 @@ CIEWidget::CIEWidget(QWidget* parent)
 
     setupUI();
 
+    m_currentWeather.description = tr("未加载 EPW：无降水");
     m_skyTypeCombo->setCurrentIndex(11);
     updateScaleInputsFromCurrentRecord();
+    updateWeatherInputsFromCurrentRecord();
     updatePerspectiveView();
 }
 
@@ -297,27 +299,27 @@ void CIEWidget::setupUI()
         0.0,
         359.9);
     m_cameraAzimuthSpin->setDecimals(1);
-    m_cameraAzimuthSpin->setSingleStep(1.0);
+    m_cameraAzimuthSpin->setSingleStep(5.0);
     m_cameraAzimuthSpin->setSuffix("°");
     m_cameraAzimuthSpin->setValue(180.0);
 
     m_cameraAltitudeSpin =
         new QDoubleSpinBox;
     m_cameraAltitudeSpin->setRange(
-        -89.9,
-        89.9);
+        -89.0,
+        89.0);
     m_cameraAltitudeSpin->setDecimals(1);
-    m_cameraAltitudeSpin->setSingleStep(1.0);
+    m_cameraAltitudeSpin->setSingleStep(5.0);
     m_cameraAltitudeSpin->setSuffix("°");
     m_cameraAltitudeSpin->setValue(20.0);
 
     m_cameraFovSpin =
         new QDoubleSpinBox;
     m_cameraFovSpin->setRange(
-        0,
-        179.9);
+        10.0,
+        170.0);
     m_cameraFovSpin->setDecimals(1);
-    m_cameraFovSpin->setSingleStep(1.0);
+    m_cameraFovSpin->setSingleStep(5.0);
     m_cameraFovSpin->setSuffix("°");
     m_cameraFovSpin->setValue(90.0);
 
@@ -337,6 +339,54 @@ void CIEWidget::setupUI()
         m_resetCameraButton);
 
     parameterLayout->addWidget(cameraGroup);
+
+    // EPW weather visual effects.
+    QGroupBox* weatherGroup =
+        new QGroupBox(tr("雨雪与能见度效果"));
+
+    QFormLayout* weatherLayout =
+        new QFormLayout(weatherGroup);
+
+    m_weatherModeCombo = new QComboBox;
+    m_weatherModeCombo->addItem(tr("自动读取 EPW"), -1);
+    m_weatherModeCombo->addItem(tr("关闭天气粒子"), 0);
+    m_weatherModeCombo->addItem(tr("手动：雨"), 1);
+    m_weatherModeCombo->addItem(tr("手动：雪"), 2);
+    m_weatherModeCombo->addItem(tr("手动：雨夹雪"), 3);
+    m_weatherModeCombo->addItem(tr("手动：雾"), 4);
+    m_weatherModeCombo->addItem(tr("手动：冻雨"), 5);
+    m_weatherModeCombo->addItem(tr("手动：冰雹/冰粒"), 6);
+
+    m_weatherIntensitySpin = new QDoubleSpinBox;
+    m_weatherIntensitySpin->setRange(0.0, 1.0);
+    m_weatherIntensitySpin->setDecimals(2);
+    m_weatherIntensitySpin->setSingleStep(0.05);
+    m_weatherIntensitySpin->setValue(0.6);
+    m_weatherIntensitySpin->setEnabled(false);
+
+    m_animateWeatherCheck =
+        new QCheckBox(tr("播放雨雪动画"));
+    m_animateWeatherCheck->setChecked(true);
+
+    m_showWeatherParticlesCheck =
+        new QCheckBox(tr("显示雨丝/雪花粒子"));
+    m_showWeatherParticlesCheck->setChecked(true);
+
+    m_showWeatherGroundCheck =
+        new QCheckBox(tr("显示湿地面/积雪地面"));
+    m_showWeatherGroundCheck->setChecked(true);
+
+    m_weatherStatusLabel = new QLabel(tr("当前：无 EPW 天气数据"));
+    m_weatherStatusLabel->setWordWrap(true);
+
+    weatherLayout->addRow(tr("天气来源"), m_weatherModeCombo);
+    weatherLayout->addRow(tr("手动强度 0-1"), m_weatherIntensitySpin);
+    weatherLayout->addRow(m_animateWeatherCheck);
+    weatherLayout->addRow(m_showWeatherParticlesCheck);
+    weatherLayout->addRow(m_showWeatherGroundCheck);
+    weatherLayout->addRow(tr("EPW 判定"), m_weatherStatusLabel);
+
+    parameterLayout->addWidget(weatherGroup);
 
     // Display.
     QGroupBox* displayGroup =
@@ -585,6 +635,36 @@ void CIEWidget::setupUI()
         });
 
     connect(
+        m_weatherModeCombo,
+        QOverload<int>::of(&QComboBox::currentIndexChanged),
+        this,
+        &CIEWidget::onWeatherModeChanged);
+
+    connect(
+        m_weatherIntensitySpin,
+        QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+        this,
+        [this](double) { onPerspectiveControlsChanged(); });
+
+    connect(
+        m_animateWeatherCheck,
+        &QCheckBox::toggled,
+        this,
+        [this](bool) { onPerspectiveControlsChanged(); });
+
+    connect(
+        m_showWeatherParticlesCheck,
+        &QCheckBox::toggled,
+        this,
+        [this](bool) { onPerspectiveControlsChanged(); });
+
+    connect(
+        m_showWeatherGroundCheck,
+        &QCheckBox::toggled,
+        this,
+        [this](bool) { onPerspectiveControlsChanged(); });
+
+    connect(
         m_resetCameraButton,
         &QPushButton::clicked,
         this,
@@ -811,6 +891,10 @@ void CIEWidget::applyEpwRecord(
         ? record.zenithLuminance
         : 0.0;
 
+    m_currentWeather = deriveWeatherVisualState(
+        record,
+        document.recordsPerHour);
+
     m_currentDate =
         QDate(
             record.year,
@@ -858,6 +942,7 @@ void CIEWidget::applyEpwRecord(
                 2));
 
     updateScaleInputsFromCurrentRecord();
+    updateWeatherInputsFromCurrentRecord();
     updatePerspectiveView();
 }
 
@@ -989,6 +1074,14 @@ CIEWidget::currentPerspectiveParameters() const
     parameters.showHorizon =
         m_showHorizonCheck->isChecked();
 
+    parameters.weather = selectedWeatherState();
+    parameters.animateWeather =
+        m_animateWeatherCheck->isChecked();
+    parameters.showWeatherParticles =
+        m_showWeatherParticlesCheck->isChecked();
+    parameters.showWeatherGround =
+        m_showWeatherGroundCheck->isChecked();
+
     return parameters;
 }
 
@@ -1057,6 +1150,76 @@ void CIEWidget::updateScaleInputsFromCurrentRecord()
             "W/m²；天空像素为 W/(m²·sr)");
         break;
     }
+}
+
+WeatherVisualState CIEWidget::selectedWeatherState() const
+{
+    const int mode = m_weatherModeCombo->currentData().toInt();
+
+    if (mode < 0)
+        return m_currentWeather;
+
+    WeatherVisualState state = m_currentWeather;
+    state.intensity = m_weatherIntensitySpin->value();
+
+    switch (mode) {
+    case 0:
+        state.precipitation = PrecipitationKind::None;
+        state.intensity = 0.0;
+        state.fogDensity = 0.0;
+        state.description = tr("手动关闭天气效果");
+        break;
+    case 1:
+        state.precipitation = PrecipitationKind::Rain;
+        state.description = tr("手动雨天");
+        break;
+    case 2:
+        state.precipitation = PrecipitationKind::Snow;
+        state.description = tr("手动雪天");
+        break;
+    case 3:
+        state.precipitation = PrecipitationKind::Mixed;
+        state.description = tr("手动雨夹雪");
+        break;
+    case 4:
+        state.precipitation = PrecipitationKind::None;
+        state.fogDensity = state.intensity;
+        state.description = tr("手动雾天");
+        break;
+    case 5:
+        state.precipitation = PrecipitationKind::FreezingRain;
+        state.description = tr("手动冻雨");
+        break;
+    case 6:
+        state.precipitation = PrecipitationKind::Hail;
+        state.description = tr("手动冰雹/冰粒");
+        break;
+    default:
+        break;
+    }
+
+    return state;
+}
+
+void CIEWidget::updateWeatherInputsFromCurrentRecord()
+{
+    if (!m_weatherStatusLabel)
+        return;
+
+    m_weatherStatusLabel->setText(m_currentWeather.description);
+
+    if (m_weatherModeCombo->currentData().toInt() < 0) {
+        const QSignalBlocker blocker(m_weatherIntensitySpin);
+        m_weatherIntensitySpin->setValue(m_currentWeather.intensity);
+    }
+}
+
+void CIEWidget::onWeatherModeChanged()
+{
+    const bool manual = m_weatherModeCombo->currentData().toInt() > 0;
+    m_weatherIntensitySpin->setEnabled(manual);
+    updateWeatherInputsFromCurrentRecord();
+    updatePerspectiveView();
 }
 
 void CIEWidget::onPerspectiveControlsChanged()

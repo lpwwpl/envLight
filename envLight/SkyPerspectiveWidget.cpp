@@ -4,6 +4,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QVector>
 #include <QWheelEvent>
 
@@ -28,6 +29,14 @@ SkyPerspectiveWidget::SkyPerspectiveWidget(QWidget* parent)
 {
     setMinimumSize(520, 340);
     setMouseTracking(true);
+
+    m_weatherTimer = new QTimer(this);
+    m_weatherTimer->setInterval(33); // approximately 30 FPS
+    connect(
+        m_weatherTimer,
+        &QTimer::timeout,
+        this,
+        &SkyPerspectiveWidget::advanceWeatherAnimation);
 }
 
 void SkyPerspectiveWidget::setParameters(
@@ -44,9 +53,9 @@ void SkyPerspectiveWidget::setParameters(
         m_parameters.cameraAzimuthDeg -= 360.0;
 
     m_parameters.cameraPitchDeg =
-        clamp(m_parameters.cameraPitchDeg, -89.9, 89.9);
+        clamp(m_parameters.cameraPitchDeg, -89.0, 89.0);
     m_parameters.verticalFovDeg =
-        clamp(m_parameters.verticalFovDeg, 0, 179.9);
+        clamp(m_parameters.verticalFovDeg, 10.0, 170.0);
 
     m_parameters.targetValue =
         std::max(0.0, m_parameters.targetValue);
@@ -65,6 +74,17 @@ void SkyPerspectiveWidget::setParameters(
         m_parameters.sunDirection = QVector3D(0.0f, 0.0f, 1.0f);
 
     m_parameters.sunDirection.normalize();
+    m_parameters.weather.intensity =
+        clamp(m_parameters.weather.intensity, 0.0, 1.0);
+    m_parameters.weather.fogDensity =
+        clamp(m_parameters.weather.fogDensity, 0.0, 1.0);
+
+    if (m_parameters.animateWeather && weatherNeedsAnimation()) {
+        if (!m_weatherTimer->isActive())
+            m_weatherTimer->start();
+    } else {
+        m_weatherTimer->stop();
+    }
 
     rebuildPreview();
     update();
@@ -80,6 +100,16 @@ double SkyPerspectiveWidget::clamp(
     double value, double low, double high)
 {
     return std::max(low, std::min(value, high));
+}
+
+double SkyPerspectiveWidget::hash01(int index, int salt)
+{
+    const double value =
+        std::sin(
+            index * 12.9898
+            + salt * 78.233)
+        * 43758.5453123;
+    return value - std::floor(value);
 }
 
 QVector3D SkyPerspectiveWidget::mix(
@@ -230,6 +260,90 @@ double SkyPerspectiveWidget::clearSkyFactor() const
         return 0.68;
 
     return 0.95;
+}
+
+double SkyPerspectiveWidget::atmosphericAttenuation() const
+{
+    const double precipitation =
+        m_parameters.weather.precipitation == PrecipitationKind::None
+        ? 0.0
+        : m_parameters.weather.intensity;
+    const double fog = m_parameters.weather.fogDensity;
+    return std::exp(-1.5 * precipitation - 2.2 * fog);
+}
+
+QColor SkyPerspectiveWidget::applyWeatherAtmosphere(
+    const QColor& source) const
+{
+    const double precipitation =
+        m_parameters.weather.precipitation == PrecipitationKind::None
+        ? 0.0
+        : m_parameters.weather.intensity;
+    const double fog = m_parameters.weather.fogDensity;
+    const double cloud = clamp(
+        m_parameters.weather.opaqueSkyCoverTenths / 10.0,
+        0.0,
+        1.0);
+
+    double blend = clamp(
+        0.16 * precipitation
+        + 0.72 * fog
+        + 0.10 * cloud,
+        0.0,
+        0.88);
+
+    QColor atmosphere(183, 190, 197);
+    if (m_parameters.weather.precipitation == PrecipitationKind::Snow)
+        atmosphere = QColor(208, 214, 220);
+
+    return QColor::fromRgbF(
+        source.redF() * (1.0 - blend) + atmosphere.redF() * blend,
+        source.greenF() * (1.0 - blend) + atmosphere.greenF() * blend,
+        source.blueF() * (1.0 - blend) + atmosphere.blueF() * blend,
+        source.alphaF());
+}
+
+QColor SkyPerspectiveWidget::groundColor() const
+{
+    if (!m_parameters.showWeatherGround)
+        return QColor(35, 37, 40);
+
+    const bool fallingSnow =
+        m_parameters.weather.precipitation == PrecipitationKind::Snow
+        || m_parameters.weather.precipitation == PrecipitationKind::Mixed;
+
+    if (m_parameters.weather.snowDepthCm > 0.0 || fallingSnow) {
+        const double coverage = clamp(
+            std::max(
+                m_parameters.weather.snowDepthCm / 5.0,
+                fallingSnow ? 0.45 * m_parameters.weather.intensity : 0.0),
+            0.0,
+            1.0);
+        const double albedo = clamp(
+            m_parameters.weather.groundAlbedo,
+            0.2,
+            0.95);
+        const int value = static_cast<int>(
+            80.0 + 165.0 * coverage * albedo);
+        return QColor(value, value, std::min(255, value + 5));
+    }
+
+    if (m_parameters.weather.precipitation == PrecipitationKind::Rain
+        || m_parameters.weather.precipitation == PrecipitationKind::Mixed
+        || m_parameters.weather.precipitation == PrecipitationKind::FreezingRain) {
+        return QColor(22, 27, 31);
+    }
+
+    return QColor(35, 37, 40);
+}
+
+bool SkyPerspectiveWidget::weatherNeedsAnimation() const
+{
+    if (!m_parameters.showWeatherParticles)
+        return false;
+
+    return m_parameters.weather.intensity > 0.0
+        && m_parameters.weather.precipitation != PrecipitationKind::None;
 }
 
 QVector3D SkyPerspectiveWidget::cameraRay(
@@ -398,7 +512,7 @@ QColor SkyPerspectiveWidget::naturalPreviewColor(
         clamp(rgb.z(), 0.0, 1.0));
 }
 
-QImage SkyPerspectiveWidget::renderToImage(
+QImage SkyPerspectiveWidget::renderBaseImage(
     const QSize& imageSize) const
 {
     const int width =
@@ -460,15 +574,18 @@ QImage SkyPerspectiveWidget::renderToImage(
         2.0 * kPi
         * (1.0 - std::cos(sunRadiusRadians));
 
+    const double effectiveDirectNormal =
+        m_parameters.directNormalValue
+        * atmosphericAttenuation();
+
     const double directDiskValue =
         sunSolidAngle > 1.0e-12
-        ? m_parameters.directNormalValue
-            / sunSolidAngle
+        ? effectiveDirectNormal / sunSolidAngle
         : 0.0;
 
     const double directStrength =
         clamp(
-            m_parameters.directNormalValue / 800.0,
+            effectiveDirectNormal / 800.0,
             0.0,
             1.0);
 
@@ -483,8 +600,7 @@ QImage SkyPerspectiveWidget::renderToImage(
                     x, y, width, height);
 
             if (direction.z() <= 0.0f) {
-                scanline[x] =
-                    QColor(35, 37, 40).rgba();
+                scanline[x] = groundColor().rgba();
                 continue;
             }
 
@@ -525,8 +641,10 @@ QImage SkyPerspectiveWidget::renderToImage(
                 break;
             }
 
+            color = applyWeatherAtmosphere(color);
+
             if (m_parameters.showSunDisk &&
-                m_parameters.directNormalValue > 0.0 &&
+                effectiveDirectNormal > 0.0 &&
                 sun.z() > 0.0f &&
                 sunCosine >= cosSunRadius) {
 
@@ -554,6 +672,153 @@ QImage SkyPerspectiveWidget::renderToImage(
     return image;
 }
 
+void SkyPerspectiveWidget::drawWeatherOverlay(
+    QPainter& painter,
+    const QRectF& targetRect,
+    double animationSeconds) const
+{
+    if (!m_parameters.showWeatherParticles
+        || m_parameters.weather.intensity <= 0.0)
+        return;
+
+    const PrecipitationKind kind =
+        m_parameters.weather.precipitation;
+
+    if (kind == PrecipitationKind::None)
+        return;
+
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setClipRect(targetRect);
+
+    const double intensity = m_parameters.weather.intensity;
+    const double width = targetRect.width();
+    const double height = targetRect.height();
+
+    // EPW direction is the direction FROM which wind blows. The horizontal
+    // destination direction is therefore rotated by 180 degrees.
+    const double relativeWind =
+        (m_parameters.weather.windDirectionDeg
+         + 180.0
+         - m_parameters.cameraAzimuthDeg)
+        * kDegToRad;
+
+    const double windSpeed = m_parameters.weather.windSpeedMps;
+    const double screenWind =
+        std::sin(relativeWind)
+        * clamp(windSpeed / 12.0, 0.0, 1.8);
+
+    auto wrapped = [](double value) {
+        value -= std::floor(value);
+        return value;
+    };
+
+    const bool drawRain =
+        kind == PrecipitationKind::Rain
+        || kind == PrecipitationKind::Mixed
+        || kind == PrecipitationKind::FreezingRain;
+
+    const bool drawSnow =
+        kind == PrecipitationKind::Snow
+        || kind == PrecipitationKind::Mixed;
+
+    const bool drawHail = kind == PrecipitationKind::Hail;
+
+    if (drawRain) {
+        const int count = static_cast<int>(80 + 620 * intensity);
+        const double speed = 0.55 + 1.25 * intensity;
+
+        QPen pen(QColor(205, 224, 238, static_cast<int>(80 + 110 * intensity)));
+        pen.setWidthF(0.7 + 1.0 * intensity);
+        pen.setCapStyle(Qt::RoundCap);
+        painter.setPen(pen);
+
+        for (int i = 0; i < count; ++i) {
+            const double seedX = hash01(i, 1);
+            const double seedY = hash01(i, 2);
+            const double speedScale = 0.75 + 0.55 * hash01(i, 3);
+            const double y = wrapped(seedY + animationSeconds * speed * speedScale);
+            const double x = wrapped(
+                seedX
+                + animationSeconds * screenWind * 0.035
+                + y * screenWind * 0.055);
+
+            const double px = targetRect.left() + x * width;
+            const double py = targetRect.top() + y * height;
+            const double length = (8.0 + 22.0 * intensity) * speedScale;
+            const double dx = screenWind * length * 0.75;
+
+            painter.drawLine(
+                QPointF(px - dx, py - length),
+                QPointF(px, py));
+        }
+    }
+
+    if (drawSnow) {
+        const int count = static_cast<int>(45 + 360 * intensity);
+        const double speed = 0.10 + 0.28 * intensity;
+
+        painter.setPen(Qt::NoPen);
+
+        for (int i = 0; i < count; ++i) {
+            const double seedX = hash01(i, 11);
+            const double seedY = hash01(i, 12);
+            const double seedSize = hash01(i, 13);
+            const double seedPhase = hash01(i, 14) * 2.0 * kPi;
+            const double y = wrapped(seedY + animationSeconds * speed * (0.7 + seedSize));
+            const double flutter =
+                std::sin(animationSeconds * (0.7 + seedSize) + seedPhase)
+                * (0.008 + 0.018 * seedSize);
+            const double x = wrapped(
+                seedX
+                + animationSeconds * screenWind * 0.014
+                + flutter);
+
+            const double px = targetRect.left() + x * width;
+            const double py = targetRect.top() + y * height;
+            const double radius = 1.1 + 3.4 * seedSize;
+            const int alpha = static_cast<int>(120 + 110 * seedSize);
+
+            painter.setBrush(QColor(248, 251, 255, alpha));
+            painter.drawEllipse(QPointF(px, py), radius, radius);
+        }
+    }
+
+    if (drawHail) {
+        const int count = static_cast<int>(40 + 260 * intensity);
+        painter.setPen(QPen(QColor(230, 239, 247, 210), 0.8));
+        painter.setBrush(QColor(221, 234, 244, 190));
+
+        for (int i = 0; i < count; ++i) {
+            const double seedX = hash01(i, 21);
+            const double seedY = hash01(i, 22);
+            const double y = wrapped(seedY + animationSeconds * (0.8 + intensity));
+            const double x = wrapped(seedX + animationSeconds * screenWind * 0.025);
+            const double radius = 1.3 + 2.6 * hash01(i, 23);
+            painter.drawEllipse(
+                QPointF(
+                    targetRect.left() + x * width,
+                    targetRect.top() + y * height),
+                radius,
+                radius);
+        }
+    }
+
+    painter.restore();
+}
+
+QImage SkyPerspectiveWidget::renderToImage(
+    const QSize& imageSize) const
+{
+    QImage image = renderBaseImage(imageSize);
+    QPainter painter(&image);
+    drawWeatherOverlay(
+        painter,
+        QRectF(0.0, 0.0, image.width(), image.height()),
+        m_animationSeconds);
+    return image;
+}
+
 bool SkyPerspectiveWidget::savePng(
     const QString& filePath,
     const QSize& imageSize) const
@@ -572,7 +837,7 @@ void SkyPerspectiveWidget::rebuildPreview()
         size().boundedTo(QSize(800, 520));
 
     m_preview =
-        renderToImage(previewSize);
+        renderBaseImage(previewSize);
 }
 
 void SkyPerspectiveWidget::paintEvent(
@@ -588,6 +853,11 @@ void SkyPerspectiveWidget::paintEvent(
 
     if (!m_preview.isNull())
         painter.drawImage(rect(), m_preview);
+
+    drawWeatherOverlay(
+        painter,
+        QRectF(rect()),
+        m_animationSeconds);
 
     painter.setRenderHint(
         QPainter::Antialiasing,
@@ -675,6 +945,22 @@ void SkyPerspectiveWidget::paintEvent(
                 0,
                 'f',
                 1));
+
+    if (!m_parameters.weather.description.isEmpty()) {
+        painter.drawText(
+            12,
+            43,
+            QString("Weather: %1")
+                .arg(m_parameters.weather.description));
+    }
+}
+
+void SkyPerspectiveWidget::advanceWeatherAnimation()
+{
+    m_animationSeconds += 0.033;
+    if (m_animationSeconds > 10000.0)
+        m_animationSeconds = 0.0;
+    update();
 }
 
 void SkyPerspectiveWidget::resizeEvent(
@@ -718,8 +1004,8 @@ void SkyPerspectiveWidget::mouseMoveEvent(
         clamp(
             m_parameters.cameraPitchDeg
                 + delta.y() * 0.20,
-            -89.9,
-            89.9);
+            -89.0,
+            89.0);
 
     rebuildPreview();
     update();
@@ -740,8 +1026,8 @@ void SkyPerspectiveWidget::wheelEvent(
         clamp(
             m_parameters.verticalFovDeg
                 - steps * 5.0,
-            0,
-            179.9);
+            10.0,
+            170.0);
 
     rebuildPreview();
     update();

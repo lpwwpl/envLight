@@ -117,10 +117,12 @@
     <ClCompile Include="SkyPolarWidget.cpp" />
     <ClCompile Include="SunSky.cpp" />
     <ClCompile Include="vtk_scene.cpp" />
+    <ClCompile Include="WeatherEffects.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="EpwData.hpp" />
     <ClInclude Include="EpwReader.h" />
+    <ClInclude Include="WeatherEffects.h" />
     <QtMoc Include="SkyPolarWidget.h" />
     <QtMoc Include="SkyPerspectiveWidget.h" />
     <ClInclude Include="SunSky.hpp" />
