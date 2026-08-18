@@ -330,6 +330,14 @@ bool PanoramaProcessor::loadImage(const std::string& filename, Image& img,
     if (ext == "exr") {
         return loadImageEXR(filename, img, exposure, gamma);
     }
+	if (ext == "hdr") {
+		return loadImageHDR(
+			filename,
+			img,
+			exposure,
+			gamma
+		);
+	}
     else if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "bmp" || ext == "tga") {
         return loadImageLDR(filename, img);
     }
@@ -514,4 +522,105 @@ Image PanoramaProcessor::perspectiveFromPanorama(const Image& pano,
         }
     }
     return output;
+}
+
+bool PanoramaProcessor::loadImageHDR(
+	const std::string& filename,
+	Image& img,
+	float exposure,
+	float gamma)
+{
+	FILE* file = nullptr;
+
+#ifdef _WIN32
+	// UTF-8 -> UTF-16，兼容 Windows 中文路径
+	int wlen = MultiByteToWideChar(
+		CP_UTF8,
+		0,
+		filename.c_str(),
+		-1,
+		nullptr,
+		0
+	);
+
+	if (wlen <= 0) {
+		std::cerr << "HDR 文件路径转换失败: "
+			<< filename << std::endl;
+		return false;
+	}
+
+	std::vector<wchar_t> wfilename(
+		static_cast<size_t>(wlen)
+	);
+
+	MultiByteToWideChar(
+		CP_UTF8,
+		0,
+		filename.c_str(),
+		-1,
+		wfilename.data(),
+		wlen
+	);
+
+	file = _wfopen(wfilename.data(), L"rb");
+#else
+	file = fopen(filename.c_str(), "rb");
+#endif
+
+	if (!file) {
+		std::cerr << "无法打开 HDR 文件: "
+			<< filename << std::endl;
+		return false;
+	}
+
+	int width = 0;
+	int height = 0;
+	int channels = 0;
+
+	// 注意这里请求 4 通道。
+	// 因为现有 hdrToLDR() 按 RGBA、每像素 4 个 float 读取。
+	float* rgba = stbi_loadf_from_file(
+		file,
+		&width,
+		&height,
+		&channels,
+		4
+	);
+
+	fclose(file);
+
+	if (!rgba) {
+		std::cerr
+			<< "HDR 解码失败: "
+			<< stbi_failure_reason()
+			<< std::endl;
+
+		return false;
+	}
+
+	if (width <= 0 || height <= 0) {
+		stbi_image_free(rgba);
+		std::cerr << "HDR 图像尺寸无效" << std::endl;
+		return false;
+	}
+
+	// 与 EXR 使用相同的 tone mapping
+	hdrToLDR(
+		rgba,
+		width,
+		height,
+		img,
+		exposure,
+		gamma
+	);
+
+	stbi_image_free(rgba);
+
+	std::cout
+		<< "HDR 加载成功: "
+		<< width << "x" << height
+		<< ", channels=" << channels
+		<< std::endl;
+
+	return true;
 }

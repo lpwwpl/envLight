@@ -177,7 +177,7 @@ void MainWindow::setupConnections() {
 
 void MainWindow::onLoadImage() {
     QString fileName = QFileDialog::getOpenFileName(this, "打开全景图", "",
-        "图像文件 (*.jpg *.jpeg *.png *.bmp *.tga *.exr);;所有文件 (*.*)");
+        "图像文件 (*.jpg *.jpeg *.png *.bmp *.tga *.exr *.hdr);;所有文件 (*.*)");
     if (fileName.isEmpty()) return;
     Image img;
     float exposure = 1.0f, gamma = 2.2f;

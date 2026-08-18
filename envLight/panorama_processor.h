@@ -26,6 +26,8 @@ struct Image {
 
 class PanoramaProcessor {
 public:
+	static bool loadImageHDR(const std::string& filename, Image& img,
+		float exposure = 1.0f, float gamma = 2.2f);
     // 加载 LDR 图像 (JPG, PNG, BMP, TGA)
     static bool loadImageLDR(const std::string& filename, Image& img);
     // 加载 EXR 图像（自动处理常规/多部分/深度）
