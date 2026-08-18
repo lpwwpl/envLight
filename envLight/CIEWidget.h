@@ -60,6 +60,7 @@ private:
     void updatePerspectiveView();
     void updateScaleInputsFromCurrentRecord();
     void updateScaleDerivedInfo();
+    void updateEpwValidationInfo();
     void updateWeatherInputsFromCurrentRecord();
     WeatherVisualState selectedWeatherState() const;
 
@@ -92,6 +93,10 @@ private:
     QLabel* m_scaleUnitLabel = nullptr;
     QLabel* m_epwTargetInfoLabel = nullptr;
     QLabel* m_directDiskInfoLabel = nullptr;
+    QLabel* m_solarGeometryInfoLabel = nullptr;
+    QLabel* m_epwRadiationInfoLabel = nullptr;
+    QLabel* m_epwIlluminanceInfoLabel = nullptr;
+    QLabel* m_validationInfoLabel = nullptr;
 
     QComboBox* m_colorModeCombo = nullptr;
     QComboBox* m_toneMapCombo = nullptr;
@@ -126,8 +131,10 @@ private:
         QDate(2018, 4, 21);
     double m_currentDecimalHour = 10.5;
 
+    double m_currentGhi = 0.0;
     double m_currentDhi = 100.0;
     double m_currentDni = 600.0;
+    double m_currentGlobalIlluminance = 0.0;
     double m_currentDiffuseIlluminance = 10000.0;
     double m_currentDirectIlluminance = 70000.0;
     double m_currentZenithLuminance = 5000.0;

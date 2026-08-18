@@ -227,6 +227,87 @@ double SkyPerspectiveWidget::absoluteScale() const
         : 0.0;
 }
 
+
+double SkyPerspectiveWidget::solarElevationDeg() const
+{
+    QVector3D sun = m_parameters.sunDirection;
+    if (sun.lengthSquared() <= 1.0e-12f)
+        return -90.0;
+
+    sun.normalize();
+    const double z = clamp(
+        static_cast<double>(sun.z()),
+        -1.0,
+        1.0);
+    return std::asin(z) * 180.0 / kPi;
+}
+
+double SkyPerspectiveWidget::diffuseHorizontalValue() const
+{
+    if (m_parameters.targetValue <= 0.0)
+        return 0.0;
+
+    // The two horizontal calibration modes are constrained exactly to their
+    // diffuse-horizontal target by absoluteScale().
+    if (m_parameters.scaleMode !=
+        SkyAbsoluteScaleMode::ZenithLuminance) {
+        return m_parameters.targetValue;
+    }
+
+    // Zenith-luminance calibration does not prescribe the horizontal
+    // integral. Integrate the calibrated CIE sky to obtain it.
+    const double scale = absoluteScale();
+    if (scale <= 0.0)
+        return 0.0;
+
+    const int altitudeSteps = 72;
+    const int azimuthSteps = 288;
+    const double dAltitude = (0.5 * kPi) / altitudeSteps;
+    const double dAzimuth = (2.0 * kPi) / azimuthSteps;
+
+    double integral = 0.0;
+    for (int altitudeIndex = 0;
+         altitudeIndex < altitudeSteps;
+         ++altitudeIndex) {
+        const double altitude =
+            (altitudeIndex + 0.5) * dAltitude;
+        const double sinAltitude = std::sin(altitude);
+        const double cosAltitude = std::cos(altitude);
+
+        for (int azimuthIndex = 0;
+             azimuthIndex < azimuthSteps;
+             ++azimuthIndex) {
+            const double azimuth =
+                (azimuthIndex + 0.5) * dAzimuth;
+            const QVector3D direction(
+                static_cast<float>(cosAltitude * std::sin(azimuth)),
+                static_cast<float>(cosAltitude * std::cos(azimuth)),
+                static_cast<float>(sinAltitude));
+
+            integral += relativeSkyValue(direction)
+                * sinAltitude
+                * cosAltitude
+                * dAltitude
+                * dAzimuth;
+        }
+    }
+
+    return std::max(0.0, scale * integral);
+}
+
+double SkyPerspectiveWidget::globalHorizontalValue() const
+{
+    QVector3D sun = m_parameters.sunDirection;
+    double sunUp = 0.0;
+    if (sun.lengthSquared() > 1.0e-12f) {
+        sun.normalize();
+        sunUp = std::max(0.0, static_cast<double>(sun.z()));
+    }
+
+    return diffuseHorizontalValue()
+        + std::max(0.0, m_parameters.directNormalValue) * sunUp;
+}
+
 double SkyPerspectiveWidget::toneMappedValue(
     double value,
     double referenceValue) const

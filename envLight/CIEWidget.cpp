@@ -211,9 +211,22 @@ void CIEWidget::setupUI()
         new QSlider(Qt::Horizontal);
     m_timeSlider->setRange(0, 0);
     m_timeSlider->setEnabled(false);
+	m_timeSlider->setSingleStep(1);
 
     m_sliderInfo =
         new QLabel(tr("未加载 EPW"));
+
+    m_solarGeometryInfoLabel =
+        new QLabel(tr("太阳：等待 EPW/日期时间"));
+    m_solarGeometryInfoLabel->setWordWrap(true);
+
+    m_epwRadiationInfoLabel =
+        new QLabel(tr("辐射：GHI / DNI / DHI 未加载"));
+    m_epwRadiationInfoLabel->setWordWrap(true);
+
+    m_epwIlluminanceInfoLabel =
+        new QLabel(tr("照度：Global / Direct / Diffuse 未加载"));
+    m_epwIlluminanceInfoLabel->setWordWrap(true);
 
     epwLayout->addWidget(
         m_loadEpwButton);
@@ -223,6 +236,12 @@ void CIEWidget::setupUI()
         m_timeSlider);
     epwLayout->addWidget(
         m_sliderInfo);
+    epwLayout->addWidget(
+        m_solarGeometryInfoLabel);
+    epwLayout->addWidget(
+        m_epwRadiationInfoLabel);
+    epwLayout->addWidget(
+        m_epwIlluminanceInfoLabel);
 
     parameterLayout->addWidget(epwGroup);
 
@@ -296,6 +315,12 @@ void CIEWidget::setupUI()
         tr("太阳盘等效值"),
         m_directDiskInfoLabel);
 
+    m_validationInfoLabel = new QLabel;
+    m_validationInfoLabel->setWordWrap(true);
+    scaleLayout->addRow(
+        tr("EPW 闭环验证"),
+        m_validationInfoLabel);
+
     parameterLayout->addWidget(scaleGroup);
 
     // Camera.
@@ -311,7 +336,7 @@ void CIEWidget::setupUI()
         0.0,
         359.9);
     m_cameraAzimuthSpin->setDecimals(1);
-    m_cameraAzimuthSpin->setSingleStep(5.0);
+    m_cameraAzimuthSpin->setSingleStep(1.0);
     m_cameraAzimuthSpin->setSuffix("°");
     m_cameraAzimuthSpin->setValue(180.0);
 
@@ -321,7 +346,7 @@ void CIEWidget::setupUI()
         -89.0,
         89.0);
     m_cameraAltitudeSpin->setDecimals(1);
-    m_cameraAltitudeSpin->setSingleStep(5.0);
+    m_cameraAltitudeSpin->setSingleStep(1.0);
     m_cameraAltitudeSpin->setSuffix("°");
     m_cameraAltitudeSpin->setValue(20.0);
 
@@ -329,7 +354,7 @@ void CIEWidget::setupUI()
         new QDoubleSpinBox;
     m_cameraRollSpin->setRange(-180.0, 180.0);
     m_cameraRollSpin->setDecimals(1);
-    m_cameraRollSpin->setSingleStep(5.0);
+    m_cameraRollSpin->setSingleStep(1.0);
     m_cameraRollSpin->setSuffix("°");
     m_cameraRollSpin->setValue(0.0);
     m_cameraRollSpin->setToolTip(
@@ -341,7 +366,7 @@ void CIEWidget::setupUI()
         10.0,
         170.0);
     m_cameraHfovSpin->setDecimals(1);
-    m_cameraHfovSpin->setSingleStep(5.0);
+    m_cameraHfovSpin->setSingleStep(1.0);
     m_cameraHfovSpin->setSuffix("°");
     m_cameraHfovSpin->setValue(90.0);
 
@@ -351,7 +376,7 @@ void CIEWidget::setupUI()
         10.0,
         170.0);
     m_cameraFovSpin->setDecimals(1);
-    m_cameraFovSpin->setSingleStep(5.0);
+    m_cameraFovSpin->setSingleStep(1.0);
     m_cameraFovSpin->setSuffix("°");
     m_cameraFovSpin->setValue(60.0);
 
@@ -910,6 +935,11 @@ void CIEWidget::applyEpwRecord(
             1,
             document.recordsPerHour);
 
+    m_currentGhi =
+        validNonNegative(record.ghi)
+        ? record.ghi * radiationFactor
+        : 0.0;
+
     m_currentDhi =
         validNonNegative(record.dhi)
         ? record.dhi * radiationFactor
@@ -918,6 +948,12 @@ void CIEWidget::applyEpwRecord(
     m_currentDni =
         validNonNegative(record.dni)
         ? record.dni * radiationFactor
+        : 0.0;
+
+    m_currentGlobalIlluminance =
+        validNonNegative(
+            record.globalHorizontalIlluminance)
+        ? record.globalHorizontalIlluminance
         : 0.0;
 
     m_currentDiffuseIlluminance =
@@ -988,6 +1024,44 @@ void CIEWidget::applyEpwRecord(
                 'f',
                 2));
 
+    const QVector3D sunDirection = currentSunDirectionENU();
+    const double sunUp = std::max(
+        -1.0,
+        std::min(1.0, static_cast<double>(sunDirection.z())));
+    const double solarElevationDeg =
+        std::asin(sunUp) * 180.0 / 3.14159265358979323846;
+    double solarAzimuthDeg =
+        std::atan2(
+            static_cast<double>(sunDirection.x()),
+            static_cast<double>(sunDirection.y()))
+        * 180.0 / 3.14159265358979323846;
+    if (solarAzimuthDeg < 0.0)
+        solarAzimuthDeg += 360.0;
+
+    if (m_solarGeometryInfoLabel) {
+        m_solarGeometryInfoLabel->setText(
+            tr("太阳：Azimuth %1°，Elevation %2°（由地点 + EPW 区间中点时间计算）")
+                .arg(solarAzimuthDeg, 0, 'f', 2)
+                .arg(solarElevationDeg, 0, 'f', 2));
+    }
+
+    if (m_epwRadiationInfoLabel) {
+        m_epwRadiationInfoLabel->setText(
+            tr("辐射：GHI %1 W/m²；DNI %2 W/m²；DHI %3 W/m²")
+                .arg(m_currentGhi, 0, 'f', 3)
+                .arg(m_currentDni, 0, 'f', 3)
+                .arg(m_currentDhi, 0, 'f', 3));
+    }
+
+    if (m_epwIlluminanceInfoLabel) {
+        m_epwIlluminanceInfoLabel->setText(
+            tr("照度：Global Horizontal %1 lx；Direct Normal %2 lx；Diffuse Horizontal %3 lx；Zenith %4 cd/m²")
+                .arg(m_currentGlobalIlluminance, 0, 'f', 1)
+                .arg(m_currentDirectIlluminance, 0, 'f', 1)
+                .arg(m_currentDiffuseIlluminance, 0, 'f', 1)
+                .arg(m_currentZenithLuminance, 0, 'f', 1));
+    }
+
     updateScaleInputsFromCurrentRecord();
     updateWeatherInputsFromCurrentRecord();
     updatePerspectiveView();
@@ -1003,13 +1077,23 @@ double CIEWidget::epwMidpointHour(
             1,
             recordsPerHour);
 
-    const double endHour =
-        static_cast<double>(hour - 1)
-        + static_cast<double>(minute)
-            / 60.0;
+    // EPW Hour is 1..24 and denotes the reporting hour. Standard EPW
+    // Minute is 1..60, but many TMY3 files use Minute=0 for hourly data.
+    // Treat Minute=0 as the end of the stated hour (equivalent to 60) so
+    // Hour=1, Minute=0 represents an interval ending at 01:00, whose
+    // hourly midpoint is 00:30 rather than -00:30.
+    const int clampedHour =
+        std::max(1, std::min(24, hour));
+    const int normalizedMinute =
+        minute <= 0
+        ? 60
+        : std::max(1, std::min(60, minute));
 
-    return endHour
-        - intervalHours * 0.5;
+    const double endHour =
+        static_cast<double>(clampedHour - 1)
+        + static_cast<double>(normalizedMinute) / 60.0;
+
+    return endHour - intervalHours * 0.5;
 }
 
 QVector3D CIEWidget::currentSunDirectionENU() const
@@ -1143,6 +1227,8 @@ void CIEWidget::updatePerspectiveView()
 
     m_perspectiveWidget->setParameters(
         currentPerspectiveParameters());
+
+    updateEpwValidationInfo();
 }
 
 void CIEWidget::updateScaleInputsFromCurrentRecord()
@@ -1257,6 +1343,69 @@ void CIEWidget::updateScaleDerivedInfo()
                 .arg(directTarget, 0, 'f', 3)
                 .arg(diskValue, 0, 'g', 7));
     }
+}
+
+void CIEWidget::updateEpwValidationInfo()
+{
+    if (!m_validationInfoLabel || !m_perspectiveWidget)
+        return;
+
+    const SkyAbsoluteScaleMode mode =
+        static_cast<SkyAbsoluteScaleMode>(
+            m_scaleModeCombo->currentData().toInt());
+
+    const double elevationDeg =
+        m_perspectiveWidget->solarElevationDeg();
+    const double sunHorizontalFactor =
+        std::max(0.0,
+            std::sin(
+                elevationDeg
+                * 3.14159265358979323846
+                / 180.0));
+
+    const double modelDiffuse =
+        m_perspectiveWidget->diffuseHorizontalValue();
+    const double modelGlobal =
+        m_perspectiveWidget->globalHorizontalValue();
+
+    double epwGlobal = 0.0;
+    QString unit;
+    QString name;
+
+    if (mode == SkyAbsoluteScaleMode::DiffuseHorizontalIrradiance) {
+        epwGlobal = m_currentGhi;
+        unit = QString::fromUtf8("W/m²");
+        name = QStringLiteral("GHI");
+    } else {
+        epwGlobal = m_currentGlobalIlluminance;
+        unit = QStringLiteral("lx");
+        name = QStringLiteral("Global Horizontal Illuminance");
+    }
+
+    const double error = modelGlobal - epwGlobal;
+    const double errorPercent =
+        epwGlobal > 1.0e-9
+        ? 100.0 * error / epwGlobal
+        : 0.0;
+
+    const QString diffuseName =
+        mode == SkyAbsoluteScaleMode::ZenithLuminance
+        ? tr("CIE 天空积分")
+        : tr("散射标定目标");
+
+    m_validationInfoLabel->setText(
+        tr("太阳高度 %1°，sin(h)=%2；%3=%4 %5；模型=%6 %5 = %7 %5 + %8 %5 × %2；误差=%9 %5 (%10%)")
+            .arg(elevationDeg, 0, 'f', 2)
+            .arg(sunHorizontalFactor, 0, 'f', 4)
+            .arg(name)
+            .arg(epwGlobal, 0, 'f', 3)
+            .arg(unit)
+            .arg(modelGlobal, 0, 'f', 3)
+            .arg(modelDiffuse, 0, 'f', 3)
+            .arg(std::max(0.0, m_directNormalSpin->value()), 0, 'f', 3)
+            .arg(error, 0, 'f', 3)
+            .arg(errorPercent, 0, 'f', 2)
+        + tr("；散射项来源：%1").arg(diffuseName));
 }
 
 WeatherVisualState CIEWidget::selectedWeatherState() const

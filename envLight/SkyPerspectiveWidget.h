@@ -86,6 +86,12 @@ public:
     QImage renderToImage(const QSize& imageSize) const;
     bool savePng(const QString& filePath, const QSize& imageSize) const;
 
+    // Physical validation helpers. Values are computed from the current
+    // canonical-ENU CIE sky parameters before display tone mapping.
+    double solarElevationDeg() const;
+    double diffuseHorizontalValue() const;
+    double globalHorizontalValue() const;
+
 signals:
     void cameraChanged(
         double azimuthDeg,
