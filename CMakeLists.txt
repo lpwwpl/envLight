@@ -193,6 +193,7 @@ set(SOURCES
 set(HEADERS	
     envLight/VL234f.hpp
     envLight/vtk_scene.h
+    envLight/coordinate_system.h
     envLight/tinyexr.h
     envLight/SunSky.hpp
     envLight/stb_image.h

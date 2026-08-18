@@ -52,13 +52,14 @@ private:
         int minute,
         int recordsPerHour) const;
 
-    QVector3D currentSunDirection() const;
+    QVector3D currentSunDirectionENU() const;
 
     SkyPerspectiveParameters
     currentPerspectiveParameters() const;
 
     void updatePerspectiveView();
     void updateScaleInputsFromCurrentRecord();
+    void updateScaleDerivedInfo();
     void updateWeatherInputsFromCurrentRecord();
     WeatherVisualState selectedWeatherState() const;
 
@@ -81,12 +82,16 @@ private:
 
     QDoubleSpinBox* m_cameraAzimuthSpin = nullptr;
     QDoubleSpinBox* m_cameraAltitudeSpin = nullptr;
+    QDoubleSpinBox* m_cameraRollSpin = nullptr;
+    QDoubleSpinBox* m_cameraHfovSpin = nullptr;
     QDoubleSpinBox* m_cameraFovSpin = nullptr;
 
     QComboBox* m_scaleModeCombo = nullptr;
     QDoubleSpinBox* m_targetValueSpin = nullptr;
     QDoubleSpinBox* m_directNormalSpin = nullptr;
     QLabel* m_scaleUnitLabel = nullptr;
+    QLabel* m_epwTargetInfoLabel = nullptr;
+    QLabel* m_directDiskInfoLabel = nullptr;
 
     QComboBox* m_colorModeCombo = nullptr;
     QComboBox* m_toneMapCombo = nullptr;

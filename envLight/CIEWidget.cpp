@@ -278,11 +278,23 @@ void CIEWidget::setupUI()
         tr("散射天空目标值"),
         m_targetValueSpin);
     scaleLayout->addRow(
-        tr("太阳直射法向值"),
+        tr("太阳直射目标值"),
         m_directNormalSpin);
     scaleLayout->addRow(
         tr("当前单位"),
         m_scaleUnitLabel);
+
+    m_epwTargetInfoLabel = new QLabel;
+    m_epwTargetInfoLabel->setWordWrap(true);
+    m_directDiskInfoLabel = new QLabel;
+    m_directDiskInfoLabel->setWordWrap(true);
+
+    scaleLayout->addRow(
+        tr("EPW 原始目标"),
+        m_epwTargetInfoLabel);
+    scaleLayout->addRow(
+        tr("太阳盘等效值"),
+        m_directDiskInfoLabel);
 
     parameterLayout->addWidget(scaleGroup);
 
@@ -313,6 +325,26 @@ void CIEWidget::setupUI()
     m_cameraAltitudeSpin->setSuffix("°");
     m_cameraAltitudeSpin->setValue(20.0);
 
+    m_cameraRollSpin =
+        new QDoubleSpinBox;
+    m_cameraRollSpin->setRange(-180.0, 180.0);
+    m_cameraRollSpin->setDecimals(1);
+    m_cameraRollSpin->setSingleStep(5.0);
+    m_cameraRollSpin->setSuffix("°");
+    m_cameraRollSpin->setValue(0.0);
+    m_cameraRollSpin->setToolTip(
+        tr("沿观察方向看，正 Roll 为顺时针旋转"));
+
+    m_cameraHfovSpin =
+        new QDoubleSpinBox;
+    m_cameraHfovSpin->setRange(
+        10.0,
+        170.0);
+    m_cameraHfovSpin->setDecimals(1);
+    m_cameraHfovSpin->setSingleStep(5.0);
+    m_cameraHfovSpin->setSuffix("°");
+    m_cameraHfovSpin->setValue(90.0);
+
     m_cameraFovSpin =
         new QDoubleSpinBox;
     m_cameraFovSpin->setRange(
@@ -321,7 +353,7 @@ void CIEWidget::setupUI()
     m_cameraFovSpin->setDecimals(1);
     m_cameraFovSpin->setSingleStep(5.0);
     m_cameraFovSpin->setSuffix("°");
-    m_cameraFovSpin->setValue(90.0);
+    m_cameraFovSpin->setValue(60.0);
 
     m_resetCameraButton =
         new QPushButton(tr("重置相机"));
@@ -332,6 +364,12 @@ void CIEWidget::setupUI()
     cameraLayout->addRow(
         tr("观察仰角 Alt"),
         m_cameraAltitudeSpin);
+    cameraLayout->addRow(
+        tr("横滚 Roll"),
+        m_cameraRollSpin);
+    cameraLayout->addRow(
+        tr("水平视场 HFOV"),
+        m_cameraHfovSpin);
     cameraLayout->addRow(
         tr("垂直视场 VFOV"),
         m_cameraFovSpin);
@@ -581,6 +619,10 @@ void CIEWidget::setupUI()
     connectPerspectiveSpin(
         m_cameraAltitudeSpin);
     connectPerspectiveSpin(
+        m_cameraRollSpin);
+    connectPerspectiveSpin(
+        m_cameraHfovSpin);
+    connectPerspectiveSpin(
         m_cameraFovSpin);
     connectPerspectiveSpin(
         m_targetValueSpin);
@@ -683,21 +725,26 @@ void CIEWidget::setupUI()
         [this](
             double azimuth,
             double altitude,
+            double roll,
+            double hfov,
             double vfov) {
 
             const QSignalBlocker blockAzimuth(
                 m_cameraAzimuthSpin);
             const QSignalBlocker blockAltitude(
                 m_cameraAltitudeSpin);
+            const QSignalBlocker blockRoll(
+                m_cameraRollSpin);
+            const QSignalBlocker blockHfov(
+                m_cameraHfovSpin);
             const QSignalBlocker blockFov(
                 m_cameraFovSpin);
 
-            m_cameraAzimuthSpin->setValue(
-                azimuth);
-            m_cameraAltitudeSpin->setValue(
-                altitude);
-            m_cameraFovSpin->setValue(
-                vfov);
+            m_cameraAzimuthSpin->setValue(azimuth);
+            m_cameraAltitudeSpin->setValue(altitude);
+            m_cameraRollSpin->setValue(roll);
+            m_cameraHfovSpin->setValue(hfov);
+            m_cameraFovSpin->setValue(vfov);
         });
 }
 
@@ -965,7 +1012,7 @@ double CIEWidget::epwMidpointHour(
         - intervalHours * 0.5;
 }
 
-QVector3D CIEWidget::currentSunDirection() const
+QVector3D CIEWidget::currentSunDirectionENU() const
 {
     const SSLib::Vec3f sun =
         SSLib::SunDirection(
@@ -1035,12 +1082,16 @@ CIEWidget::currentPerspectiveParameters() const
         m_directNormalSpin->value();
 
     parameters.sunDirection =
-        currentSunDirection();
+        currentSunDirectionENU();
 
     parameters.cameraAzimuthDeg =
         m_cameraAzimuthSpin->value();
     parameters.cameraPitchDeg =
         m_cameraAltitudeSpin->value();
+    parameters.cameraRollDeg =
+        m_cameraRollSpin->value();
+    parameters.horizontalFovDeg =
+        m_cameraHfovSpin->value();
     parameters.verticalFovDeg =
         m_cameraFovSpin->value();
 
@@ -1120,7 +1171,11 @@ void CIEWidget::updateScaleInputsFromCurrentRecord()
         m_referenceValueSpin->setValue(
             5000.0);
         m_scaleUnitLabel->setText(
-            "lx / cd·m⁻²");
+            "天空: lx；太阳目标: lx；太阳盘: cd/m²");
+        m_epwTargetInfoLabel->setText(
+            tr("Diffuse Horizontal Illuminance = %1 lx；Direct Normal Illuminance = %2 lx")
+                .arg(m_currentDiffuseIlluminance, 0, 'f', 3)
+                .arg(m_currentDirectIlluminance, 0, 'f', 3));
         break;
 
     case SkyAbsoluteScaleMode::
@@ -1133,7 +1188,11 @@ void CIEWidget::updateScaleInputsFromCurrentRecord()
         m_referenceValueSpin->setValue(
             5000.0);
         m_scaleUnitLabel->setText(
-            "cd/m²；直射值为 lx");
+            "天空: cd/m²；太阳目标: lx；太阳盘: cd/m²");
+        m_epwTargetInfoLabel->setText(
+            tr("Zenith Luminance = %1 cd/m²；Direct Normal Illuminance = %2 lx")
+                .arg(m_currentZenithLuminance, 0, 'f', 3)
+                .arg(m_currentDirectIlluminance, 0, 'f', 3));
         break;
 
     case SkyAbsoluteScaleMode::
@@ -1147,8 +1206,56 @@ void CIEWidget::updateScaleInputsFromCurrentRecord()
         m_referenceValueSpin->setValue(
             50.0);
         m_scaleUnitLabel->setText(
-            "W/m²；天空像素为 W/(m²·sr)");
+            "天空/太阳目标: W/m²；天空/太阳盘: W/(m²·sr)");
+        m_epwTargetInfoLabel->setText(
+            tr("DHI = %1 W/m²；DNI = %2 W/m²（由 EPW Wh/m² ÷ 区间小时数换算）")
+                .arg(m_currentDhi, 0, 'f', 3)
+                .arg(m_currentDni, 0, 'f', 3));
         break;
+    }
+
+    updateScaleDerivedInfo();
+
+}
+
+
+void CIEWidget::updateScaleDerivedInfo()
+{
+    if (!m_scaleModeCombo ||
+        !m_directNormalSpin ||
+        !m_directDiskInfoLabel) {
+        return;
+    }
+
+    const SkyAbsoluteScaleMode mode =
+        static_cast<SkyAbsoluteScaleMode>(
+            m_scaleModeCombo->currentData().toInt());
+
+    // Mean angular radius of the solar disk used by the renderer.
+    const double sunAngularRadiusDeg = 0.2665;
+    const double sunRadiusRad =
+        sunAngularRadiusDeg * 3.14159265358979323846 / 180.0;
+    const double sunSolidAngle =
+        2.0 * 3.14159265358979323846
+        * (1.0 - std::cos(sunRadiusRad));
+
+    const double directTarget =
+        std::max(0.0, m_directNormalSpin->value());
+    const double diskValue =
+        sunSolidAngle > 1.0e-12
+        ? directTarget / sunSolidAngle
+        : 0.0;
+
+    if (mode == SkyAbsoluteScaleMode::DiffuseHorizontalIrradiance) {
+        m_directDiskInfoLabel->setText(
+            tr("太阳直射目标 %1 W/m² → 均匀太阳盘 %2 W/(m²·sr)")
+                .arg(directTarget, 0, 'f', 3)
+                .arg(diskValue, 0, 'g', 7));
+    } else {
+        m_directDiskInfoLabel->setText(
+            tr("太阳直射目标 %1 lx → 均匀太阳盘 %2 cd/m²")
+                .arg(directTarget, 0, 'f', 3)
+                .arg(diskValue, 0, 'g', 7));
     }
 }
 
@@ -1224,6 +1331,7 @@ void CIEWidget::onWeatherModeChanged()
 
 void CIEWidget::onPerspectiveControlsChanged()
 {
+    updateScaleDerivedInfo();
     updatePerspectiveView();
 }
 
@@ -1237,7 +1345,9 @@ void CIEWidget::onResetCamera()
 {
     m_cameraAzimuthSpin->setValue(180.0);
     m_cameraAltitudeSpin->setValue(20.0);
-    m_cameraFovSpin->setValue(90.0);
+    m_cameraRollSpin->setValue(0.0);
+    m_cameraHfovSpin->setValue(90.0);
+    m_cameraFovSpin->setValue(60.0);
     updatePerspectiveView();
 }
 

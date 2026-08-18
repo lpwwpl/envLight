@@ -1,4 +1,5 @@
 #include "SkyPerspectiveWidget.h"
+#include "coordinate_system.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -54,6 +55,10 @@ void SkyPerspectiveWidget::setParameters(
 
     m_parameters.cameraPitchDeg =
         clamp(m_parameters.cameraPitchDeg, -89.0, 89.0);
+    m_parameters.cameraRollDeg =
+        clamp(m_parameters.cameraRollDeg, -180.0, 180.0);
+    m_parameters.horizontalFovDeg =
+        clamp(m_parameters.horizontalFovDeg, 10.0, 170.0);
     m_parameters.verticalFovDeg =
         clamp(m_parameters.verticalFovDeg, 10.0, 170.0);
 
@@ -357,14 +362,13 @@ QVector3D SkyPerspectiveWidget::cameraRay(
     const double pitch =
         m_parameters.cameraPitchDeg * kDegToRad;
 
-    // ENU coordinates:
-    // +X East, +Y North, +Z Zenith.
+    // Sky/CIE physics always stays in canonical ENU regardless of the VTK world mode.
+    double forwardENU[3];
+    CoordinateSystemUtils::directionENURadians(yaw, pitch, forwardENU);
     const QVector3D forward(
-        static_cast<float>(
-            std::cos(pitch) * std::sin(yaw)),
-        static_cast<float>(
-            std::cos(pitch) * std::cos(yaw)),
-        static_cast<float>(std::sin(pitch)));
+        static_cast<float>(forwardENU[0]),
+        static_cast<float>(forwardENU[1]),
+        static_cast<float>(forwardENU[2]));
 
     QVector3D right =
         QVector3D::crossProduct(
@@ -376,16 +380,30 @@ QVector3D SkyPerspectiveWidget::cameraRay(
     else
         right.normalize();
 
-    const QVector3D up =
+    QVector3D up =
         QVector3D::crossProduct(
             right,
             forward).normalized();
 
-    const double aspect =
-        static_cast<double>(width)
-        / std::max(1, height);
+    // Roll is around the viewing direction. Positive roll is clockwise
+    // when looking along forward into the scene.
+    const double roll =
+        m_parameters.cameraRollDeg * kDegToRad;
+    const double c = std::cos(roll);
+    const double sr = std::sin(roll);
+    const QVector3D rolledRight =
+        static_cast<float>(c) * right
+        + static_cast<float>(sr) * up;
+    const QVector3D rolledUp =
+        static_cast<float>(-sr) * right
+        + static_cast<float>(c) * up;
 
-    const double tanHalfFov =
+    const double tanHalfH =
+        std::tan(
+            0.5
+            * m_parameters.horizontalFovDeg
+            * kDegToRad);
+    const double tanHalfV =
         std::tan(
             0.5
             * m_parameters.verticalFovDeg
@@ -393,17 +411,16 @@ QVector3D SkyPerspectiveWidget::cameraRay(
 
     const double screenX =
         (2.0 * (x + 0.5) / width - 1.0)
-        * aspect
-        * tanHalfFov;
+        * tanHalfH;
 
     const double screenY =
         (1.0 - 2.0 * (y + 0.5) / height)
-        * tanHalfFov;
+        * tanHalfV;
 
     return (
         forward
-        + static_cast<float>(screenX) * right
-        + static_cast<float>(screenY) * up
+        + static_cast<float>(screenX) * rolledRight
+        + static_cast<float>(screenY) * rolledUp
     ).normalized();
 }
 
@@ -574,18 +591,24 @@ QImage SkyPerspectiveWidget::renderBaseImage(
         2.0 * kPi
         * (1.0 - std::cos(sunRadiusRadians));
 
-    const double effectiveDirectNormal =
-        m_parameters.directNormalValue
-        * atmosphericAttenuation();
+    // Absolute calibration is kept exact: integrating the uniform solar
+    // disk over its solid angle returns directNormalValue. Weather effects
+    // are visual only and must not silently change the EPW calibration target.
+    const double calibratedDirectNormal =
+        m_parameters.directNormalValue;
 
     const double directDiskValue =
         sunSolidAngle > 1.0e-12
-        ? effectiveDirectNormal / sunSolidAngle
+        ? calibratedDirectNormal / sunSolidAngle
         : 0.0;
+
+    const double visualDirectNormal =
+        calibratedDirectNormal
+        * atmosphericAttenuation();
 
     const double directStrength =
         clamp(
-            effectiveDirectNormal / 800.0,
+            visualDirectNormal / 800.0,
             0.0,
             1.0);
 
@@ -644,7 +667,7 @@ QImage SkyPerspectiveWidget::renderBaseImage(
             color = applyWeatherAtmosphere(color);
 
             if (m_parameters.showSunDisk &&
-                effectiveDirectNormal > 0.0 &&
+                calibratedDirectNormal > 0.0 &&
                 sun.z() > 0.0f &&
                 sunCosine >= cosSunRadius) {
 
@@ -929,7 +952,7 @@ void SkyPerspectiveWidget::paintEvent(
         12,
         22,
         QString(
-            "View Az %1°  View Alt %2°  VFOV %3°")
+            "Az %1°  Alt %2°  Roll %3°  HFOV %4°  VFOV %5°")
             .arg(
                 m_parameters.cameraAzimuthDeg,
                 0,
@@ -940,6 +963,8 @@ void SkyPerspectiveWidget::paintEvent(
                 0,
                 'f',
                 1)
+            .arg(m_parameters.cameraRollDeg, 0, 'f', 1)
+            .arg(m_parameters.horizontalFovDeg, 0, 'f', 1)
             .arg(
                 m_parameters.verticalFovDeg,
                 0,
@@ -1013,6 +1038,8 @@ void SkyPerspectiveWidget::mouseMoveEvent(
     emit cameraChanged(
         m_parameters.cameraAzimuthDeg,
         m_parameters.cameraPitchDeg,
+        m_parameters.cameraRollDeg,
+        m_parameters.horizontalFovDeg,
         m_parameters.verticalFovDeg);
 }
 
@@ -1022,12 +1049,21 @@ void SkyPerspectiveWidget::wheelEvent(
     const double steps =
         event->angleDelta().y() / 120.0;
 
-    m_parameters.verticalFovDeg =
-        clamp(
-            m_parameters.verticalFovDeg
-                - steps * 5.0,
+    const double zoomFactor = std::pow(0.90, steps);
+    auto zoomFov = [zoomFactor](double fovDeg) {
+        const double half = 0.5 * fovDeg * kDegToRad;
+        const double scaled = std::atan(
+            std::tan(half) * zoomFactor);
+        return clamp(
+            2.0 * scaled / kDegToRad,
             10.0,
             170.0);
+    };
+
+    m_parameters.horizontalFovDeg =
+        zoomFov(m_parameters.horizontalFovDeg);
+    m_parameters.verticalFovDeg =
+        zoomFov(m_parameters.verticalFovDeg);
 
     rebuildPreview();
     update();
@@ -1035,6 +1071,8 @@ void SkyPerspectiveWidget::wheelEvent(
     emit cameraChanged(
         m_parameters.cameraAzimuthDeg,
         m_parameters.cameraPitchDeg,
+        m_parameters.cameraRollDeg,
+        m_parameters.horizontalFovDeg,
         m_parameters.verticalFovDeg);
 
     event->accept();

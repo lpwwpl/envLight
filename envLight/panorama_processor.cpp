@@ -1,4 +1,4 @@
-﻿#include "panorama_processor.h"
+#include "panorama_processor.h"
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -10,6 +10,17 @@
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+// Convert a world-oriented panorama U (where +Z is u=0.5) to the source
+// panorama U according to the user-defined location of North in the source image.
+static double applyNorthPanoramaOffset(double worldU, double northPanoramaDeg) {
+    double northU = std::fmod(northPanoramaDeg, 360.0) / 360.0;
+    if (northU < 0.0) northU += 1.0;
+    double sourceU = worldU + (northU - 0.5);
+    sourceU = std::fmod(sourceU, 1.0);
+    if (sourceU < 0.0) sourceU += 1.0;
+    return sourceU;
+}
 
 // 定义STB_IMAGE实现
 #define STB_IMAGE_IMPLEMENTATION
@@ -236,9 +247,26 @@ namespace {
         return true;
     }
 
-    // 射线与单位球面求交
+    // Convert a normalized world-space direction to geographic panorama UV.
+    // Source-independent world panorama convention before north offset:
+    // North -> u=0.5, East -> u=0.75, South -> seam(0/1), West -> u=0.25; Up -> v=0.
+    void worldDirectionToPanoramaUV(const double world[3], WorldCoordinateSystem coordinateSystem,
+        double& u, double& v) {
+        double east = 0.0, north = 0.0, up = 0.0;
+        if (coordinateSystem == WorldCoordinateSystem::ENU) {
+            east = world[0]; north = world[1]; up = world[2];
+        } else {
+            north = world[0]; east = world[1]; up = -world[2];
+        }
+        up = std::max(-1.0, std::min(1.0, up));
+        const double azimuth = std::atan2(east, north); // 0=N, +90=E
+        u = (azimuth + M_PI) / (2.0 * M_PI);
+        v = std::acos(up) / M_PI;
+    }
+
+    // Ray/unit-sphere intersection followed by coordinate-system-aware panorama UV conversion.
     bool raySphereIntersection(const double origin[3], const double dir[3],
-        double& hit_u, double& hit_v) {
+        double& hit_u, double& hit_v, WorldCoordinateSystem coordinateSystem) {
         double a = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
         double b = 2.0 * (origin[0] * dir[0] + origin[1] * dir[1] + origin[2] * dir[2]);
         double c = origin[0] * origin[0] + origin[1] * origin[1] + origin[2] * origin[2] - 1.0;
@@ -249,13 +277,12 @@ namespace {
         double t2 = (-b + sqrt_disc) / (2.0 * a);
         double t = (t1 > 1e-6) ? t1 : ((t2 > 1e-6) ? t2 : -1.0);
         if (t <= 1e-6) return false;
-        double hit_x = origin[0] + t * dir[0];
-        double hit_y = origin[1] + t * dir[1];
-        double hit_z = origin[2] + t * dir[2];
-        double theta = acos(hit_y);
-        double phi = atan2(hit_x, hit_z);
-        hit_u = (phi + M_PI) / (2.0 * M_PI);
-        hit_v = theta / M_PI;
+        double hit[3] = {
+            origin[0] + t * dir[0],
+            origin[1] + t * dir[1],
+            origin[2] + t * dir[2]
+        };
+        worldDirectionToPanoramaUV(hit, coordinateSystem, hit_u, hit_v);
         return true;
     }
 
@@ -359,30 +386,73 @@ bool PanoramaProcessor::loadImage(const std::string& filename, HDRImage& img) {
 }
 
 bool PanoramaProcessor::raySphereIntersection(const double origin[3], const double dir[3],
-    double& hit_u, double& hit_v) {
-    return ::raySphereIntersection(origin, dir, hit_u, hit_v);
+    double& hit_u, double& hit_v, WorldCoordinateSystem coordinateSystem) {
+    return ::raySphereIntersection(origin, dir, hit_u, hit_v, coordinateSystem);
 }
+
+void PanoramaProcessor::convertCoordinateVector(const double in[3], WorldCoordinateSystem from,
+    WorldCoordinateSystem to, double out[3])
+{
+    CoordinateSystemUtils::convertVector(in, from, to, out);
+}
+
+void PanoramaProcessor::buildNavigationRotation(
+    double azimuth_deg, double elevation_deg, double roll_deg,
+    double R[3][3], WorldCoordinateSystem coordinateSystem)
+{
+    const double azimuth = azimuth_deg * M_PI / 180.0;
+    const double elevation = elevation_deg * M_PI / 180.0;
+    const double roll = roll_deg * M_PI / 180.0;
+
+    const double sa = std::sin(azimuth);
+    const double ca = std::cos(azimuth);
+    const double se = std::sin(elevation);
+    const double ce = std::cos(elevation);
+    const double sr = std::sin(roll);
+    const double cr = std::cos(roll);
+
+    // First construct basis in canonical ENU coordinates (E,N,U).
+    // forward: az=0 -> North, az=90 -> East, elevation + -> Up.
+    double forwardENU[3] = { ce * sa, ce * ca, se };
+    double rightENU[3] = { ca, -sa, 0.0 };
+    double upENU[3] = { -se * sa, -se * ca, ce };
+
+    double rolledRightENU[3] = {
+        rightENU[0] * cr + upENU[0] * sr,
+        rightENU[1] * cr + upENU[1] * sr,
+        rightENU[2] * cr + upENU[2] * sr
+    };
+    double rolledUpENU[3] = {
+        -rightENU[0] * sr + upENU[0] * cr,
+        -rightENU[1] * sr + upENU[1] * cr,
+        -rightENU[2] * sr + upENU[2] * cr
+    };
+
+    double right[3], up[3], forward[3];
+    convertCoordinateVector(rolledRightENU, WorldCoordinateSystem::ENU, coordinateSystem, right);
+    convertCoordinateVector(rolledUpENU, WorldCoordinateSystem::ENU, coordinateSystem, up);
+    convertCoordinateVector(forwardENU, WorldCoordinateSystem::ENU, coordinateSystem, forward);
+
+    // Projection code uses camera-local +Y as image-down, hence column 1 = -up.
+    R[0][0] = right[0]; R[0][1] = -up[0]; R[0][2] = forward[0];
+    R[1][0] = right[1]; R[1][1] = -up[1]; R[1][2] = forward[1];
+    R[2][0] = right[2]; R[2][1] = -up[2]; R[2][2] = forward[2];
+}
+
 std::vector<QPointF> PanoramaProcessor::computeCornerUVs(
     double cx, double cy, double cz,
     double yaw_deg, double pitch_deg, double roll_deg,
     double hfov_deg, double vfov_deg,
-    int outW, int outH)
+    int outW, int outH,
+    double northPanoramaDeg,
+    WorldCoordinateSystem coordinateSystem)
 {
     std::vector<QPointF> polygon;
     polygon.reserve(200); // 预分配
 
-    // 旋转矩阵（与 perspectiveFromPanorama 完全一致）
-    double yaw = yaw_deg * M_PI / 180.0;
-    double pitch = pitch_deg * M_PI / 180.0;
-    double roll = roll_deg * M_PI / 180.0;
-    double cyaw = cos(yaw), syaw = sin(yaw);
-    double cp = cos(pitch), sp = sin(pitch);
-    double cr = cos(roll), sr = sin(roll);
-    double R[3][3] = {
-        { cyaw * cp,  cyaw * sp * sr - syaw * cr,  cyaw * sp * cr + syaw * sr },
-        { syaw * cp,  syaw * sp * sr + cyaw * cr,  syaw * sp * cr - cyaw * sr },
-        { -sp,        cp * sr,                      cp * cr }
-    };
+    // Standard navigation rotation shared with perspective generation and VTK rays.
+    double R[3][3];
+    buildNavigationRotation(yaw_deg, pitch_deg, roll_deg, R, coordinateSystem);
 
     // 焦距
     double hfov_rad = hfov_deg * M_PI / 180.0;
@@ -417,7 +487,8 @@ std::vector<QPointF> PanoramaProcessor::computeCornerUVs(
 
         double dir[3] = { wx, wy, wz };
         double u, v;
-        if (raySphereIntersection(origin, dir, u, v)) {
+        if (raySphereIntersection(origin, dir, u, v, coordinateSystem)) {
+            u = applyNorthPanoramaOffset(u, northPanoramaDeg);
             result = QPointF(u, v);
             return true;
         }
@@ -463,23 +534,16 @@ HDRImage PanoramaProcessor::perspectiveFromPanorama(const HDRImage& pano,
     double cx, double cy, double cz,
     double yaw_deg, double pitch_deg, double roll_deg,
     double hfov_deg, double vfov_deg,
-    int outW, int outH, int aa) {
+    int outW, int outH, int aa,
+    double northPanoramaDeg,
+    WorldCoordinateSystem coordinateSystem) {
     HDRImage output(outW, outH);
     if (pano.width == 0 || pano.height == 0 || outW <= 0 || outH <= 0) return output;
     aa = std::max(1, aa);
 
     double cameraPos[3] = { cx, cy, cz };
-    double yaw = yaw_deg * M_PI / 180.0;
-    double pitch = pitch_deg * M_PI / 180.0;
-    double roll = roll_deg * M_PI / 180.0;
-    double cyaw = cos(yaw), syaw = sin(yaw);
-    double cp = cos(pitch), sp = sin(pitch);
-    double cr = cos(roll), sr = sin(roll);
-    double R[3][3] = {
-        { cyaw * cp,  cyaw * sp * sr - syaw * cr,  cyaw * sp * cr + syaw * sr },
-        { syaw * cp,  syaw * sp * sr + cyaw * cr,  syaw * sp * cr - cyaw * sr },
-        { -sp,      cp * sr,                  cp * cr }
-    };
+    double R[3][3];
+    buildNavigationRotation(yaw_deg, pitch_deg, roll_deg, R, coordinateSystem);
 
     double hfov_rad = hfov_deg * M_PI / 180.0;
     double focalX = (outW / 2.0) / tan(hfov_rad / 2.0);
@@ -518,7 +582,8 @@ HDRImage PanoramaProcessor::perspectiveFromPanorama(const HDRImage& pano,
                     wx /= len; wy /= len; wz /= len;
                     double dir[3] = { wx, wy, wz };
                     double u = 0.0, v = 0.0;
-                    if (raySphereIntersection(cameraPos, dir, u, v) && v >= 0.0 && v <= 1.0) {
+                    if (raySphereIntersection(cameraPos, dir, u, v, coordinateSystem) && v >= 0.0 && v <= 1.0) {
+                        u = applyNorthPanoramaOffset(u, northPanoramaDeg);
                         LinearRGB col = samplePanoramaBilinear(pano, u, v);
                         r_sum += col.r; g_sum += col.g; b_sum += col.b;
                         ++valid;

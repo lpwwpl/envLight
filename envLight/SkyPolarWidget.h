@@ -1,4 +1,4 @@
-﻿#ifndef SKYPOLARWIDGET_H
+#ifndef SKYPOLARWIDGET_H
 #define SKYPOLARWIDGET_H
 
 #include <QWidget>
@@ -65,6 +65,7 @@ private:
     bool m_customMode = false;
     SSLib::CIESkyCoefficients m_customCoeffs;
 
+    // Canonical physical ENU direction: +X East, +Y North, +Z Up.
     QVector3D m_sunDirection{ 0.5f, -0.5f, 0.7071f };
 
     double m_latitude = 39.9;

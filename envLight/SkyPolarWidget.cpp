@@ -1,4 +1,5 @@
 ﻿#include "SkyPolarWidget.h"
+#include "coordinate_system.h"
 #include "SunSky.hpp"
 
 #include <QPainter>
@@ -147,11 +148,12 @@ QVector3D SkyPolarWidget::cellCenterDirection(const SkyCell& cell) const
     const double sinAlt = 0.5 * (std::sin(cell.altitudeMin) + std::sin(cell.altitudeMax));
     const double altitude = std::asin(clamp(sinAlt, -1.0, 1.0));
     const double azimuth = 0.5 * (cell.azimuthMin + cell.azimuthMax);
-    const double cosAlt = std::cos(altitude);
+    double directionENU[3];
+    CoordinateSystemUtils::directionENURadians(azimuth, altitude, directionENU);
     return QVector3D(
-        static_cast<float>(cosAlt * std::sin(azimuth)),
-        static_cast<float>(cosAlt * std::cos(azimuth)),
-        static_cast<float>(std::sin(altitude))
+        static_cast<float>(directionENU[0]),
+        static_cast<float>(directionENU[1]),
+        static_cast<float>(directionENU[2])
     );
 }
 

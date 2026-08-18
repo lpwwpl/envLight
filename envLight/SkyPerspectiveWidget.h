@@ -42,12 +42,16 @@ struct SkyPerspectiveParameters {
     // W/m2 in irradiance mode, lx in photometric modes.
     double directNormalValue = 600.0;
 
+    // Canonical physical ENU direction: +X East, +Y North, +Z Up.
     QVector3D sunDirection{0.5f, -0.5f, 0.7071f};
 
-    // Camera: azimuth clockwise from North; pitch above horizon.
+    // Camera is always canonical ENU: azimuth clockwise from North; pitch/elevation above horizon.
     double cameraAzimuthDeg = 180.0;
     double cameraPitchDeg = 20.0;
-    double verticalFovDeg = 90.0;
+    // Positive roll rotates the camera clockwise when looking along forward.
+    double cameraRollDeg = 0.0;
+    double horizontalFovDeg = 90.0;
+    double verticalFovDeg = 60.0;
 
     SkyColorMode colorMode = SkyColorMode::NaturalPreview;
     SkyToneMapMode toneMapMode = SkyToneMapMode::FixedReference;
@@ -86,6 +90,8 @@ signals:
     void cameraChanged(
         double azimuthDeg,
         double pitchDeg,
+        double rollDeg,
+        double horizontalFovDeg,
         double verticalFovDeg);
 
 protected:

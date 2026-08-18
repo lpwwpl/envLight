@@ -1,4 +1,4 @@
-﻿#include "vtk_scene.h"
+#include "vtk_scene.h"
 #include <vtkRenderer.h>
 #include <vtkRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
@@ -166,7 +166,7 @@ VTKSceneWidget::VTKSceneWidget(QWidget* parent)
     : QVTKOpenGLStereoWidget(parent)
     , m_cx(0.5), m_cy(0.2), m_cz(0.3)
     , m_yaw(30), m_pitch(20), m_roll(0)
-    , m_hfov(90), m_vfov(60), m_outW(800), m_outH(600)
+    , m_hfov(90), m_vfov(60), m_northDirectionDeg(180.0), m_coordinateSystem(WorldCoordinateSystem::ENU), m_outW(800), m_outH(600)
 {
     setupScene();
 }
@@ -178,10 +178,10 @@ void VTKSceneWidget::setupScene() {
     m_renderer->SetBackground(0.1, 0.1, 0.2);
     this->renderWindow()->AddRenderer(m_renderer);
 
-    // 带全景纹理的球体。
-    // 项目自己的全景坐标约定是：+Y 为北极、+Z 对应 panorama u=0.5。
-    // vtkTextureMapToSphere 默认以 +Z 为北极，因此先生成标准球面 UV，
-    // 再将纹理经度平移 0.75，并把 actor 绕 X 轴旋转 -90 度与项目坐标系对齐。
+    // Textured unit sphere. ENU is the default world convention: X=East, Y=North, Z=Up.
+    // vtkTextureMapToSphere already uses the VTK +Z axis as its polar axis, which matches ENU Up.
+    // NED support is implemented by changing texture coordinate mapping (including vertical flip),
+    // while all camera/ray vectors are generated directly in the selected coordinate representation.
     m_sphereSource = vtkSmartPointer<vtkSphereSource>::New();
     m_sphereSource->SetRadius(1.0);
     m_sphereSource->SetThetaResolution(160);
@@ -194,18 +194,19 @@ void VTKSceneWidget::setupScene() {
     textureMap->SetCenter(0.0, 0.0, 0.0);
     textureMap->PreventSeamOff(); // s 按 0..1 连续绕完整 360 度
 
-    vtkSmartPointer<vtkTransformTextureCoords> textureTransform =
-        vtkSmartPointer<vtkTransformTextureCoords>::New();
-    textureTransform->SetInputConnection(textureMap->GetOutputPort());
-    // 使 +Z 世界方向落在全景图中央 u=0.5，并把接缝放在 -Z。
-    textureTransform->SetPosition(0.75, 0.0, 0.0);
+    m_textureTransform = vtkSmartPointer<vtkTransformTextureCoords>::New();
+    m_textureTransform->SetInputConnection(textureMap->GetOutputPort());
+    // ENU default: raw vtk spherical s at +Y (North) is 0.25.
+    // With source North at u=0.5, shift by +0.25. setCoordinateSystem()/
+    // setNorthDirectionDegrees() keep this transform synchronized.
+    m_textureTransform->SetScale(1.0, 1.0, 1.0);
+    m_textureTransform->SetPosition(0.25, 0.0, 0.0);
 
     vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputConnection(textureTransform->GetOutputPort());
+    mapper->SetInputConnection(m_textureTransform->GetOutputPort());
 
     m_sphereActor = vtkSmartPointer<vtkActor>::New();
     m_sphereActor->SetMapper(mapper);
-    m_sphereActor->RotateX(-90.0); // vtk +Z 北极 -> 项目 +Y 北极
     m_sphereActor->GetProperty()->SetColor(1.0, 1.0, 1.0);
     m_sphereActor->GetProperty()->SetOpacity(0.65);
     // 纹理作为“显示图”，关闭光照可避免球面光照再次改变其颜色。
@@ -231,20 +232,22 @@ void VTKSceneWidget::setupScene() {
     wireMapper->SetInputConnection(wireSphere->GetOutputPort());
     vtkSmartPointer<vtkActor> wireActor = vtkSmartPointer<vtkActor>::New();
     wireActor->SetMapper(wireMapper);
-    wireActor->RotateX(-90.0);
     wireActor->GetProperty()->SetColor(0.9, 0.9, 0.9);
     wireActor->GetProperty()->SetRepresentationToWireframe();
     m_renderer->AddActor(wireActor);
 
     // 坐标轴
-    vtkSmartPointer<vtkAxesActor> axes = vtkSmartPointer<vtkAxesActor>::New();
-    axes->SetTotalLength(1.2, 1.2, 1.2);
-    m_renderer->AddActor(axes);
+    m_axesActor = vtkSmartPointer<vtkAxesActor>::New();
+    m_axesActor->SetTotalLength(1.2, 1.2, 1.2);
+    m_axesActor->SetXAxisLabelText("X East");
+    m_axesActor->SetYAxisLabelText("Y North");
+    m_axesActor->SetZAxisLabelText("Z Up");
+    m_renderer->AddActor(m_axesActor);
 
     // 相机视角
     m_renderer->GetActiveCamera()->SetPosition(2.5, 1.5, 2.0);
     m_renderer->GetActiveCamera()->SetFocalPoint(0, 0, 0);
-    m_renderer->GetActiveCamera()->SetViewUp(0, 1, 0);
+    m_renderer->GetActiveCamera()->SetViewUp(0, 0, 1); // ENU: +Z is Up
     m_renderer->ResetCameraClippingRange();
 
     // 初始化动态 actors
@@ -258,6 +261,72 @@ void VTKSceneWidget::setupScene() {
     // 初始更新一次（使用默认参数）
     updateROIAndRay();
     updatePerspective();
+}
+
+void VTKSceneWidget::setNorthDirectionDegrees(double northPanoramaDeg) {
+    double normalized = std::fmod(northPanoramaDeg, 360.0);
+    if (normalized < 0.0) normalized += 360.0;
+    m_northDirectionDeg = normalized;
+
+    if (m_textureTransform) {
+        const double northU = normalized / 360.0;
+        if (m_coordinateSystem == WorldCoordinateSystem::ENU) {
+            // vtk raw spherical s: +X=0, +Y=0.25. ENU North is +Y.
+            m_textureTransform->SetScale(1.0, 1.0, 1.0);
+            m_textureTransform->SetPosition(northU - 0.25, 0.0, 0.0);
+        } else {
+            // NED North is +X, so raw s=0. NED +Z is Down, therefore flip t so
+            // source panorama v=0 (Up) maps to world -Z.
+            m_textureTransform->SetScale(1.0, -1.0, 1.0);
+            m_textureTransform->SetPosition(northU, 1.0, 0.0);
+        }
+        m_textureTransform->Modified();
+    }
+
+    updatePerspective();
+    this->renderWindow()->Render();
+}
+
+void VTKSceneWidget::setCoordinateSystem(WorldCoordinateSystem coordinateSystem) {
+    const WorldCoordinateSystem oldSystem = m_coordinateSystem;
+
+    // Preserve the external VTK observer's physical viewpoint when changing representation.
+    vtkCamera* camera = m_renderer ? m_renderer->GetActiveCamera() : nullptr;
+    if (camera && oldSystem != coordinateSystem) {
+        double oldPos[3], oldFocal[3], newPos[3], newFocal[3];
+        camera->GetPosition(oldPos);
+        camera->GetFocalPoint(oldFocal);
+        PanoramaProcessor::convertCoordinateVector(oldPos, oldSystem, coordinateSystem, newPos);
+        PanoramaProcessor::convertCoordinateVector(oldFocal, oldSystem, coordinateSystem, newFocal);
+        camera->SetPosition(newPos);
+        camera->SetFocalPoint(newFocal);
+    }
+
+    m_coordinateSystem = coordinateSystem;
+
+    if (camera) {
+        if (m_coordinateSystem == WorldCoordinateSystem::ENU)
+            camera->SetViewUp(0.0, 0.0, 1.0);       // +Z = Up
+        else
+            camera->SetViewUp(0.0, 0.0, -1.0);      // NED +Z = Down, so physical Up = -Z
+        m_renderer->ResetCameraClippingRange();
+    }
+
+    if (m_axesActor) {
+        if (m_coordinateSystem == WorldCoordinateSystem::ENU) {
+            m_axesActor->SetXAxisLabelText("X East");
+            m_axesActor->SetYAxisLabelText("Y North");
+            m_axesActor->SetZAxisLabelText("Z Up");
+        } else {
+            m_axesActor->SetXAxisLabelText("X North");
+            m_axesActor->SetYAxisLabelText("Y East");
+            m_axesActor->SetZAxisLabelText("Z Down");
+        }
+    }
+
+    // Re-apply source-North offset together with the coordinate-system-specific UV mapping.
+    setNorthDirectionDegrees(m_northDirectionDeg);
+    updateROIAndRay();
 }
 
 void VTKSceneWidget::setPanorama(const HDRImage& img) {
@@ -313,7 +382,7 @@ void VTKSceneWidget::updatePerspective() {
     // Perspective generation remains scene-linear floating point.
     HDRImage perspectiveHDR = PanoramaProcessor::perspectiveFromPanorama(
         m_panorama, m_cx, m_cy, m_cz, m_yaw, m_pitch, m_roll,
-        m_hfov, m_vfov, m_outW, m_outH, 2); // 2x2 anti-aliasing
+        m_hfov, m_vfov, m_outW, m_outH, 2, m_northDirectionDeg, m_coordinateSystem); // 2x2 anti-aliasing
 
     // Convert only the UI preview to 8-bit sRGB.
     Image perspective = PanoramaProcessor::toneMapForDisplay(perspectiveHDR, 1.0f, 2.2f);
@@ -331,18 +400,10 @@ void VTKSceneWidget::updatePerspective() {
 }
 
 void VTKSceneWidget::updateROIAndRay() {
-    // 计算旋转矩阵
-    double yaw_rad = m_yaw * M_PI / 180.0;
-    double pitch_rad = m_pitch * M_PI / 180.0;
-    double roll_rad = m_roll * M_PI / 180.0;
-    double cy = cos(yaw_rad), sy = sin(yaw_rad);
-    double cp = cos(pitch_rad), sp = sin(pitch_rad);
-    double cr = cos(roll_rad), sr = sin(roll_rad);
-    double R[3][3] = {
-        { cy * cp,  cy * sp * sr - sy * cr,  cy * sp * cr + sy * sr },
-        { sy * cp,  sy * sp * sr + cy * cr,  sy * sp * cr - cy * sr },
-        { -sp,    cp * sr,              cp * cr }
-    };
+    // Same geographic navigation semantics in either ENU or NED representation:
+    // azimuth 0=N, 90=E; elevation + looks Up.
+    double R[3][3];
+    PanoramaProcessor::buildNavigationRotation(m_yaw, m_pitch, m_roll, R, m_coordinateSystem);
 
     // 焦距
     double hfov_rad = m_hfov * M_PI / 180.0;
@@ -415,7 +476,8 @@ void VTKSceneWidget::updateROIAndRay() {
 }
 
 
-PanoramaLabel::PanoramaLabel(QWidget* parent) : QLabel(parent), m_hasCorners(false)
+PanoramaLabel::PanoramaLabel(QWidget* parent)
+    : QLabel(parent), m_hasCorners(false), m_northDirectionDeg(180.0)
 {
     setAlignment(Qt::AlignCenter);
     setMinimumSize(400, 200);
@@ -432,6 +494,14 @@ void PanoramaLabel::setPanoramaImage(const Image& img)
         }
     }
     m_pixmap = QPixmap::fromImage(qimg);
+    update();
+}
+
+void PanoramaLabel::setNorthDirectionDegrees(double northPanoramaDeg)
+{
+    double normalized = std::fmod(northPanoramaDeg, 360.0);
+    if (normalized < 0.0) normalized += 360.0;
+    m_northDirectionDeg = normalized;
     update();
 }
 
@@ -476,5 +546,29 @@ void PanoramaLabel::paintEvent(QPaintEvent* event)
         painter.setPen(QPen(Qt::red, 2));
         painter.drawPolyline(poly); // 首尾不自动闭合，可以根据需要添加闭合线
         if (poly.size() > 2) painter.drawLine(poly.last(), poly.first());
+    }
+
+    // Draw the user-defined compass directions directly on the source panorama.
+    // North is configured by horizontal source-image position; E/S/W are +90/+180/+270 deg.
+    const char* labels[4] = { "N", "E", "S", "W" };
+    const double offsets[4] = { 0.0, 90.0, 180.0, 270.0 };
+    QFont compassFont = painter.font();
+    compassFont.setBold(true);
+    compassFont.setPointSize(11);
+    painter.setFont(compassFont);
+
+    for (int i = 0; i < 4; ++i) {
+        double deg = std::fmod(m_northDirectionDeg + offsets[i], 360.0);
+        if (deg < 0.0) deg += 360.0;
+        const double u = deg / 360.0;
+        const double px = x + u * scaled.width();
+
+        painter.setPen(QPen(QColor(255, 255, 255, 150), 1, Qt::DashLine));
+        painter.drawLine(QPointF(px, y), QPointF(px, y + scaled.height()));
+
+        QRectF textRect(px - 14.0, y + 5.0, 28.0, 22.0);
+        painter.fillRect(textRect, QColor(0, 0, 0, 150));
+        painter.setPen(Qt::white);
+        painter.drawText(textRect, Qt::AlignCenter, labels[i]);
     }
 }
