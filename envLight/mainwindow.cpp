@@ -179,20 +179,28 @@ void MainWindow::onLoadImage() {
     QString fileName = QFileDialog::getOpenFileName(this, "打开全景图", "",
         "图像文件 (*.jpg *.jpeg *.png *.bmp *.tga *.exr *.hdr);;所有文件 (*.*)");
     if (fileName.isEmpty()) return;
-    Image img;
-    float exposure = 1.0f, gamma = 2.2f;
-    if (!PanoramaProcessor::loadImage(fileName.toStdString(), img, exposure, gamma)) {
+
+    QByteArray pathUtf8 = fileName.toUtf8();
+    HDRImage img;
+    if (!PanoramaProcessor::loadImage(std::string(pathUtf8.constData()), img)) {
         QMessageBox::warning(this, "错误", "加载图像失败！");
         return;
     }
+
+    // Keep the original scene-linear HDR image for all calculations/perspective sampling.
     m_panorama = img;
     m_hasPanorama = true;
-    m_vtkWidget->setPanorama(img);
+    m_vtkWidget->setPanorama(m_panorama);
     m_vtkWidget->update();
-    m_panoramaLabel->setPanoramaImage(img);
+
+    // Tone mapping is display-only. It does not change m_panorama.
+    Image preview = PanoramaProcessor::toneMapForDisplay(m_panorama, 1.0f, 2.2f);
+    m_panoramaLabel->setPanoramaImage(preview);
 
     onUpdateParameters();
-    QMessageBox::information(this, "成功", QString("全景图加载成功: %1x%2").arg(img.width).arg(img.height));
+    QMessageBox::information(this, "成功",
+        QString("全景图加载成功: %1x%2（HDR/EXR 原始浮点亮度已保留）")
+        .arg(img.width).arg(img.height));
 }
 
 void MainWindow::onUpdateParameters() {

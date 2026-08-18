@@ -44,7 +44,7 @@ private:
     CIEWidget* m_cieWidget;
     QMenuBar* m_menuBar;
 
-    Image m_panorama;
+    HDRImage m_panorama;
     bool m_hasPanorama;
 };
 

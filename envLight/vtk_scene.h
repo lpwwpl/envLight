@@ -9,6 +9,7 @@
 class vtkRenderer;
 class vtkSphereSource;
 class vtkTexture;
+class vtkImageData;
 class VTKSceneWidget : public QVTKOpenGLStereoWidget
 {
     Q_OBJECT
@@ -17,8 +18,8 @@ public:
     explicit VTKSceneWidget(QWidget* parent = nullptr);
     ~VTKSceneWidget();
 
-    // 设置全景图（仅用于生成透视视图，不在3D场景中显示纹理）
-    void setPanorama(const Image& img);
+    // 设置全景图：HDR float 用于计算，tone-mapped 预览同时覆盖到 VTK 球面
+    void setPanorama(const HDRImage& img);
     //void updateTexture();
     // 更新相机参数（同时更新3D示意和透视视图）
     void setCameraParameters(double cx, double cy, double cz,
@@ -42,12 +43,14 @@ private:
     vtkSmartPointer<vtkActor> m_rayActors[4];
     vtkSmartPointer<vtkActor> m_rectEdges[4];
     vtkSmartPointer<vtkTexture> m_texture;
+    vtkSmartPointer<vtkImageData> m_textureImage; // keep texture input alive across renders
     // 当前参数
     double m_cx, m_cy, m_cz;
     double m_yaw, m_pitch, m_roll;
     double m_hfov, m_vfov;
     int m_outW, m_outH;
-    Image m_panorama;               // 全景图像（用于生成透视视图）
+    HDRImage m_panorama;            // scene-linear HDR panorama for perspective generation
+    Image m_panoramaDisplay;        // cached tone-mapped preview; never used for HDR calculations
 };
 class PanoramaLabel : public QLabel
 {

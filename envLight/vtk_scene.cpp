@@ -18,6 +18,7 @@
 #include <vtkTexture.h>
 #include <vtkImageData.h>
 #include <vtkTextureMapToSphere.h>
+#include <vtkTransformTextureCoords.h>
 #include <QPainter>
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -177,33 +178,48 @@ void VTKSceneWidget::setupScene() {
     m_renderer->SetBackground(0.1, 0.1, 0.2);
     this->renderWindow()->AddRenderer(m_renderer);
 
-    // 球体（半透明，不带纹理）
+    // 带全景纹理的球体。
+    // 项目自己的全景坐标约定是：+Y 为北极、+Z 对应 panorama u=0.5。
+    // vtkTextureMapToSphere 默认以 +Z 为北极，因此先生成标准球面 UV，
+    // 再将纹理经度平移 0.75，并把 actor 绕 X 轴旋转 -90 度与项目坐标系对齐。
     m_sphereSource = vtkSmartPointer<vtkSphereSource>::New();
     m_sphereSource->SetRadius(1.0);
-    m_sphereSource->SetThetaResolution(100);
-    m_sphereSource->SetPhiResolution(100);
+    m_sphereSource->SetThetaResolution(160);
+    m_sphereSource->SetPhiResolution(80);
+
+    vtkSmartPointer<vtkTextureMapToSphere> textureMap =
+        vtkSmartPointer<vtkTextureMapToSphere>::New();
+    textureMap->SetInputConnection(m_sphereSource->GetOutputPort());
+    textureMap->AutomaticSphereGenerationOff();
+    textureMap->SetCenter(0.0, 0.0, 0.0);
+    textureMap->PreventSeamOff(); // s 按 0..1 连续绕完整 360 度
+
+    vtkSmartPointer<vtkTransformTextureCoords> textureTransform =
+        vtkSmartPointer<vtkTransformTextureCoords>::New();
+    textureTransform->SetInputConnection(textureMap->GetOutputPort());
+    // 使 +Z 世界方向落在全景图中央 u=0.5，并把接缝放在 -Z。
+    textureTransform->SetPosition(0.75, 0.0, 0.0);
+
     vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputConnection(m_sphereSource->GetOutputPort());
+    mapper->SetInputConnection(textureTransform->GetOutputPort());
+
     m_sphereActor = vtkSmartPointer<vtkActor>::New();
-
-    // 生成纹理坐标
-    //vtkSmartPointer<vtkTextureMapToSphere> textureMap = vtkSmartPointer<vtkTextureMapToSphere>::New();
-    //textureMap->SetInputConnection(m_sphereSource->GetOutputPort());
-    //textureMap->Update();
-    //vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    //mapper->SetInputConnection(textureMap->GetOutputPort());
     m_sphereActor->SetMapper(mapper);
+    m_sphereActor->RotateX(-90.0); // vtk +Z 北极 -> 项目 +Y 北极
     m_sphereActor->GetProperty()->SetColor(1.0, 1.0, 1.0);
-    m_sphereActor->GetProperty()->SetOpacity(0.3);
-    m_renderer->AddActor(m_sphereActor);
+    m_sphereActor->GetProperty()->SetOpacity(0.65);
+    // 纹理作为“显示图”，关闭光照可避免球面光照再次改变其颜色。
+    m_sphereActor->GetProperty()->LightingOff();
 
-
-
-
-    // 创建纹理对象
+    // 创建纹理对象。HDR/EXR 仍由 m_panorama 保存 float；这里只使用 tone-mapped 8-bit 预览。
     m_texture = vtkSmartPointer<vtkTexture>::New();
-    m_texture->InterpolateOn();          // 平滑插值
-    m_sphereActor->SetTexture(m_texture);
+    m_texture->InterpolateOn();
+    m_texture->RepeatOn();              // 经度方向跨 0/1 接缝重复
+    m_texture->MipmapOff();             // keep VTK 9.1 texture upload path simple
+
+    // Do not attach an empty texture here: setupScene() renders before a panorama is loaded.
+    // Once sphere TCoords exist, VTK 9.1 may try to upload that empty texture and dereference null input.
+    m_sphereActor->SetTexture(nullptr);
     m_renderer->AddActor(m_sphereActor);
 
     // 线框球体（增强立体感）
@@ -215,6 +231,7 @@ void VTKSceneWidget::setupScene() {
     wireMapper->SetInputConnection(wireSphere->GetOutputPort());
     vtkSmartPointer<vtkActor> wireActor = vtkSmartPointer<vtkActor>::New();
     wireActor->SetMapper(wireMapper);
+    wireActor->RotateX(-90.0);
     wireActor->GetProperty()->SetColor(0.9, 0.9, 0.9);
     wireActor->GetProperty()->SetRepresentationToWireframe();
     m_renderer->AddActor(wireActor);
@@ -243,8 +260,37 @@ void VTKSceneWidget::setupScene() {
     updatePerspective();
 }
 
-void VTKSceneWidget::setPanorama(const Image & img) {
+void VTKSceneWidget::setPanorama(const HDRImage& img) {
     m_panorama = img;
+
+    // Build the display texture only when the panorama changes. HDR calculations keep
+    // using m_panorama; this cached 8-bit image is strictly for VTK visualization.
+    m_panoramaDisplay = PanoramaProcessor::toneMapForDisplay(m_panorama, 1.0f, 2.2f);
+    if (m_panoramaDisplay.width > 0 && m_panoramaDisplay.height > 0) {
+        m_textureImage = vtkSmartPointer<vtkImageData>::New();
+        m_textureImage->SetDimensions(m_panoramaDisplay.width, m_panoramaDisplay.height, 1);
+        m_textureImage->AllocateScalars(VTK_UNSIGNED_CHAR, 3);
+
+        for (int y = 0; y < m_panoramaDisplay.height; ++y) {
+            for (int x = 0; x < m_panoramaDisplay.width; ++x) {
+                const sRGB& c = m_panoramaDisplay.at(x, y);
+                unsigned char* pixel = static_cast<unsigned char*>(m_textureImage->GetScalarPointer(x, y, 0));
+                pixel[0] = static_cast<unsigned char>(c.r);
+                pixel[1] = static_cast<unsigned char>(c.g);
+                pixel[2] = static_cast<unsigned char>(c.b);
+            }
+        }
+        m_textureImage->Modified();
+        m_texture->SetInputData(m_textureImage);
+        m_texture->SetColorModeToDirectScalars();
+        m_texture->Modified();
+        m_texture->Update();
+
+        // Attach the texture only after a valid vtkImageData input exists.
+        m_sphereActor->SetTexture(m_texture);
+    }
+
+    this->renderWindow()->Render();
     updatePerspective();
 }
 void VTKSceneWidget::setCameraParameters(double cx, double cy, double cz,
@@ -264,37 +310,21 @@ void VTKSceneWidget::setCameraParameters(double cx, double cy, double cz,
 void VTKSceneWidget::updatePerspective() {
     if (m_panorama.width == 0) return;
 
-    Image perspective = PanoramaProcessor::perspectiveFromPanorama(
+    // Perspective generation remains scene-linear floating point.
+    HDRImage perspectiveHDR = PanoramaProcessor::perspectiveFromPanorama(
         m_panorama, m_cx, m_cy, m_cz, m_yaw, m_pitch, m_roll,
-        m_hfov, m_vfov, m_outW, m_outH, 2); // 抗锯齿 2x2
+        m_hfov, m_vfov, m_outW, m_outH, 2); // 2x2 anti-aliasing
 
+    // Convert only the UI preview to 8-bit sRGB.
+    Image perspective = PanoramaProcessor::toneMapForDisplay(perspectiveHDR, 1.0f, 2.2f);
     QImage qimg(perspective.width, perspective.height, QImage::Format_RGB888);
     for (int y = 0; y < perspective.height; ++y) {
         for (int x = 0; x < perspective.width; ++x) {
             const sRGB& c = perspective.at(x, y);
-            qimg.setPixel(x, y, qRgb(c.r, c.g, c.b));
+            qimg.setPixel(x, y, qRgb(static_cast<int>(c.r), static_cast<int>(c.g), static_cast<int>(c.b)));
         }
     }
 
-
-    vtkSmartPointer<vtkImageData> imageData = vtkSmartPointer<vtkImageData>::New();
-    imageData->SetDimensions(m_panorama.width, m_panorama.height, 1);
-    imageData->AllocateScalars(VTK_UNSIGNED_CHAR, 3);
-
-    for (int y = 0; y < m_panorama.height; ++y) {
-        for (int x = 0; x < m_panorama.width; ++x) {
-            const sRGB& c = m_panorama.at(x, y);
-            unsigned char* pixel = static_cast<unsigned char*>(imageData->GetScalarPointer(x, y, 0));
-            pixel[0] = c.r;
-            pixel[1] = c.g;
-            pixel[2] = c.b;
-        }
-    }
-
-    m_texture->SetInputData(imageData);
-    m_texture->Update();   // 必须调用，纹理才会生效
-
-    // 刷新渲染
     this->renderWindow()->Render();
 
     emit perspectiveViewReady(qimg);
