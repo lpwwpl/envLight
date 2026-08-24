@@ -191,6 +191,7 @@ set(SOURCES
 
 # ---- 头文件（位于 envLight 目录下）----
 set(HEADERS	
+    envLight/CameraTransform.h
     envLight/VL234f.hpp
     envLight/vtk_scene.h
     envLight/tinyexr.h

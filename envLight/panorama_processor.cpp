@@ -1,4 +1,5 @@
 ﻿#include "panorama_processor.h"
+#include "CameraTransform.h"
 #include <cmath>
 #include <algorithm>
 #include <iostream>
@@ -252,10 +253,12 @@ namespace {
         double hit_x = origin[0] + t * dir[0];
         double hit_y = origin[1] + t * dir[1];
         double hit_z = origin[2] + t * dir[2];
-        double theta = acos(hit_y);
-        double phi = atan2(hit_x, hit_z);
-        hit_u = (phi + M_PI) / (2.0 * M_PI);
-        hit_v = theta / M_PI;
+
+        // ENU world: +X East, +Y North, +Z Up.
+        hit_z = std::max(-1.0, std::min(1.0, hit_z));
+        const double azimuth = atan2(hit_x, hit_y);
+        hit_u = (azimuth + M_PI) / (2.0 * M_PI);
+        hit_v = acos(hit_z) / M_PI;
         return true;
     }
 
@@ -366,176 +369,165 @@ std::vector<QPointF> PanoramaProcessor::computeCornerUVs(
     double cx, double cy, double cz,
     double yaw_deg, double pitch_deg, double roll_deg,
     double hfov_deg, double vfov_deg,
-    int outW, int outH)
+    int outW, int outH,
+    double northPanoramaDeg,
+    bool flipVertical)
 {
     std::vector<QPointF> polygon;
-    polygon.reserve(200); // 预分配
+    polygon.reserve(200);
 
-    // 旋转矩阵（与 perspectiveFromPanorama 完全一致）
-    double yaw = yaw_deg * M_PI / 180.0;
-    double pitch = pitch_deg * M_PI / 180.0;
-    double roll = roll_deg * M_PI / 180.0;
-    double cyaw = cos(yaw), syaw = sin(yaw);
-    double cp = cos(pitch), sp = sin(pitch);
-    double cr = cos(roll), sr = sin(roll);
-    double R[3][3] = {
-        { cyaw * cp,  cyaw * sp * sr - syaw * cr,  cyaw * sp * cr + syaw * sr },
-        { syaw * cp,  syaw * sp * sr + cyaw * cr,  syaw * sp * cr - cyaw * sr },
-        { -sp,        cp * sr,                      cp * cr }
-    };
-
-    // 焦距
-    double hfov_rad = hfov_deg * M_PI / 180.0;
-    double focalX = (outW / 2.0) / tan(hfov_rad / 2.0);
-    double focalY;
-    if (vfov_deg > 0.0) {
-        double vfov_rad = vfov_deg * M_PI / 180.0;
-        focalY = (outH / 2.0) / tan(vfov_rad / 2.0);
+    CameraTransform::RayContext rayCtx;
+    if (!CameraTransform::buildRayContext(
+            cx, cy, cz,
+            yaw_deg, pitch_deg, roll_deg,
+            hfov_deg, vfov_deg,
+            outW, outH,
+            flipVertical,
+            rayCtx))
+    {
+        return polygon;
     }
-    else {
-        focalY = focalX * (static_cast<double>(outH) / outW);
-    }
-    double halfW = outW / 2.0;
-    double halfH = outH / 2.0;
-    double origin[3] = { cx, cy, cz };
 
-    // 采样辅助函数
-    auto samplePoint = [&](double x, double y, QPointF& result) -> bool {
-        double nx = (x - halfW) / focalX;
-        double ny = (y - halfH) / focalY;
-        double nz = 1.0;
-        double len = sqrt(nx * nx + ny * ny + nz * nz);
-        if (len < 1e-6) return false;
-        nx /= len; ny /= len; nz /= len;
+    auto samplePoint = [&](double x, double y, QPointF& result) -> bool
+    {
+        double dir[3];
+        if (!CameraTransform::pixelToENUDirection(rayCtx, x, y, dir))
+            return false;
 
-        double wx = R[0][0] * nx + R[0][1] * ny + R[0][2] * nz;
-        double wy = R[1][0] * nx + R[1][1] * ny + R[1][2] * nz;
-        double wz = R[2][0] * nx + R[2][1] * ny + R[2][2] * nz;
-        len = sqrt(wx * wx + wy * wy + wz * wz);
-        if (len < 1e-6) return false;
-        wx /= len; wy /= len; wz /= len;
-
-        double dir[3] = { wx, wy, wz };
-        double u, v;
-        if (raySphereIntersection(origin, dir, u, v)) {
+        double u = 0.0;
+        double v = 0.0;
+        if (raySphereIntersection(rayCtx.originENU, dir, u, v))
+        {
+            u = PanoramaProcessor::applyNorthPanoramaOffset(u, northPanoramaDeg);
             result = QPointF(u, v);
             return true;
         }
         return false;
     };
 
-    const int N = 40; // 每条边采样点数（越高越精确，但计算量稍大）
+    const int N = 40;
 
-    // 采样上边缘 (y=0)
-    for (int i = 0; i <= N; ++i) {
-        double x = i * (outW - 1.0) / N;
+    // Top edge.
+    for (int i = 0; i <= N; ++i)
+    {
+        const double x = i * (outW - 1.0) / N;
         QPointF pt;
-        auto ret = samplePoint(x, 0.0, pt);
-        if (ret) polygon.push_back(pt);
-    }
-    // 右边缘 (x=outW-1)
-    for (int i = 1; i <= N; ++i) {
-        double y = i * (outH - 1.0) / N;
-        QPointF pt;
-        auto ret = samplePoint(outW - 1.0, y, pt);
-        if (ret) polygon.push_back(pt);
-    }
-    // 下边缘 (y=outH-1)
-    for (int i = N - 1; i >= 0; --i) {
-        double x = i * (outW - 1.0) / N;
-        QPointF pt;
-        auto ret = samplePoint(x, outH - 1.0,pt);
-        if (ret) polygon.push_back(pt);
-    }
-    // 左边缘 (x=0)
-    for (int i = N - 1; i >= 1; --i) {
-        double y = i * (outH - 1.0) / N;
-        QPointF pt;
-        auto ret = samplePoint(0.0, y,pt);
-        if (ret) polygon.push_back(pt);
+        if (samplePoint(x, 0.0, pt)) polygon.push_back(pt);
     }
 
-    // 如果采样点太少（例如全部无交点），返回空
-    if (polygon.size() < 3) polygon.clear();
+    // Right edge.
+    for (int i = 1; i <= N; ++i)
+    {
+        const double y = i * (outH - 1.0) / N;
+        QPointF pt;
+        if (samplePoint(outW - 1.0, y, pt)) polygon.push_back(pt);
+    }
+
+    // Bottom edge.
+    for (int i = N - 1; i >= 0; --i)
+    {
+        const double x = i * (outW - 1.0) / N;
+        QPointF pt;
+        if (samplePoint(x, outH - 1.0, pt)) polygon.push_back(pt);
+    }
+
+    // Left edge.
+    for (int i = N - 1; i >= 1; --i)
+    {
+        const double y = i * (outH - 1.0) / N;
+        QPointF pt;
+        if (samplePoint(0.0, y, pt)) polygon.push_back(pt);
+    }
+
+    if (polygon.size() < 3)
+        polygon.clear();
+
     return polygon;
 }
+
 HDRImage PanoramaProcessor::perspectiveFromPanorama(const HDRImage& pano,
     double cx, double cy, double cz,
     double yaw_deg, double pitch_deg, double roll_deg,
     double hfov_deg, double vfov_deg,
-    int outW, int outH, int aa) {
+    int outW, int outH, int aa,
+    double northPanoramaDeg,
+    bool flipVertical)
+{
     HDRImage output(outW, outH);
-    if (pano.width == 0 || pano.height == 0 || outW <= 0 || outH <= 0) return output;
+    if (pano.width == 0 || pano.height == 0 || outW <= 0 || outH <= 0)
+        return output;
+
     aa = std::max(1, aa);
 
-    double cameraPos[3] = { cx, cy, cz };
-    double yaw = yaw_deg * M_PI / 180.0;
-    double pitch = pitch_deg * M_PI / 180.0;
-    double roll = roll_deg * M_PI / 180.0;
-    double cyaw = cos(yaw), syaw = sin(yaw);
-    double cp = cos(pitch), sp = sin(pitch);
-    double cr = cos(roll), sr = sin(roll);
-    double R[3][3] = {
-        { cyaw * cp,  cyaw * sp * sr - syaw * cr,  cyaw * sp * cr + syaw * sr },
-        { syaw * cp,  syaw * sp * sr + cyaw * cr,  syaw * sp * cr - cyaw * sr },
-        { -sp,      cp * sr,                  cp * cr }
-    };
-
-    double hfov_rad = hfov_deg * M_PI / 180.0;
-    double focalX = (outW / 2.0) / tan(hfov_rad / 2.0);
-    double focalY;
-    if (vfov_deg > 0.0) {
-        double vfov_rad = vfov_deg * M_PI / 180.0;
-        focalY = (outH / 2.0) / tan(vfov_rad / 2.0);
-    }
-    else {
-        focalY = focalX * (static_cast<double>(outH) / outW);
+    CameraTransform::RayContext rayCtx;
+    if (!CameraTransform::buildRayContext(
+            cx, cy, cz,
+            yaw_deg, pitch_deg, roll_deg,
+            hfov_deg, vfov_deg,
+            outW, outH,
+            flipVertical,
+            rayCtx))
+    {
+        return output;
     }
 
-    double halfW = outW / 2.0;
-    double halfH = outH / 2.0;
-    double step = 1.0 / aa;
+    const double step = 1.0 / aa;
 
-    for (int y = 0; y < outH; ++y) {
-        for (int x = 0; x < outW; ++x) {
-            double r_sum = 0.0, g_sum = 0.0, b_sum = 0.0;
+    for (int y = 0; y < outH; ++y)
+    {
+        for (int x = 0; x < outW; ++x)
+        {
+            double r_sum = 0.0;
+            double g_sum = 0.0;
+            double b_sum = 0.0;
             int valid = 0;
-            for (int sy = 0; sy < aa; ++sy) {
-                for (int sx = 0; sx < aa; ++sx) {
-                    double offX = (sx + 0.5) * step - 0.5;
-                    double offY = (sy + 0.5) * step - 0.5;
-                    double nx = (x + offX - halfW) / focalX;
-                    double ny = (y + offY - halfH) / focalY;
-                    double nz = 1.0;
-                    double len = sqrt(nx * nx + ny * ny + nz * nz);
-                    if (len < 1e-12) continue;
-                    nx /= len; ny /= len; nz /= len;
-                    double wx = R[0][0] * nx + R[0][1] * ny + R[0][2] * nz;
-                    double wy = R[1][0] * nx + R[1][1] * ny + R[1][2] * nz;
-                    double wz = R[2][0] * nx + R[2][1] * ny + R[2][2] * nz;
-                    len = sqrt(wx * wx + wy * wy + wz * wz);
-                    if (len < 1e-12) continue;
-                    wx /= len; wy /= len; wz /= len;
-                    double dir[3] = { wx, wy, wz };
-                    double u = 0.0, v = 0.0;
-                    if (raySphereIntersection(cameraPos, dir, u, v) && v >= 0.0 && v <= 1.0) {
-                        LinearRGB col = samplePanoramaBilinear(pano, u, v);
-                        r_sum += col.r; g_sum += col.g; b_sum += col.b;
+
+            for (int sy = 0; sy < aa; ++sy)
+            {
+                for (int sx = 0; sx < aa; ++sx)
+                {
+                    const double offX = (sx + 0.5) * step - 0.5;
+                    const double offY = (sy + 0.5) * step - 0.5;
+
+                    double dir[3];
+                    if (!CameraTransform::pixelToENUDirection(
+                            rayCtx,
+                            x + offX,
+                            y + offY,
+                            dir))
+                    {
+                        continue;
+                    }
+
+                    double u = 0.0;
+                    double v = 0.0;
+                    if (raySphereIntersection(rayCtx.originENU, dir, u, v) &&
+                        v >= 0.0 && v <= 1.0)
+                    {
+                        u = PanoramaProcessor::applyNorthPanoramaOffset(u, northPanoramaDeg);
+                        const LinearRGB col = samplePanoramaBilinear(pano, u, v);
+                        r_sum += col.r;
+                        g_sum += col.g;
+                        b_sum += col.b;
                         ++valid;
                     }
                 }
             }
-            if (valid > 0) {
+
+            if (valid > 0)
+            {
                 output.at(x, y) = LinearRGB(
                     static_cast<float>(r_sum / valid),
                     static_cast<float>(g_sum / valid),
                     static_cast<float>(b_sum / valid));
             }
-            else {
+            else
+            {
                 output.at(x, y) = LinearRGB();
             }
         }
     }
+
     return output;
 }
 
@@ -636,4 +628,34 @@ bool PanoramaProcessor::loadImageHDR(const std::string& filename, HDRImage& img)
               << ", source channels=" << channels << std::endl;
     printHDRStats("HDR loaded", img);
     return true;
+}
+
+void PanoramaProcessor::cameraToPanoramaXYZ(
+	double cameraX,
+	double cameraY,
+	double cameraZ,
+	double& panoX,
+	double& panoY,
+	double& panoZ)
+{
+	// Camera X -> Panorama Y
+	// Camera Y -> Panorama Z
+	// Camera Z -> Panorama X
+
+	panoX = cameraZ;
+	panoY = cameraX;
+	panoZ = cameraY;
+}
+double PanoramaProcessor::applyNorthPanoramaOffset(double worldU, double northPanoramaDeg)
+{
+    // northPanoramaDeg is the horizontal position of geographic North in the
+    // SOURCE panorama: 0 deg = left seam, 180 deg = image center, 360 deg = seam.
+    double northU = std::fmod(northPanoramaDeg, 360.0) / 360.0;
+    if (northU < 0.0) northU += 1.0;
+
+    // In the ENU world panorama convention North is worldU=0.5.
+    double sourceU = worldU + (northU - 0.5);
+    sourceU = std::fmod(sourceU, 1.0);
+    if (sourceU < 0.0) sourceU += 1.0;
+    return sourceU;
 }

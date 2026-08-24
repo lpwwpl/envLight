@@ -67,7 +67,9 @@ public:
         double cx, double cy, double cz,
         double yaw_deg, double pitch_deg, double roll_deg,
         double hfov_deg, double vfov_deg,
-        int outW, int outH, int aa);
+        int outW, int outH, int aa,
+        double northPanoramaDeg = 180.0,
+        bool flipVertical = false);
 
     // Display-only conversion: tone map scene-linear HDR to 8-bit sRGB.
     // This never modifies the source HDR image.
@@ -78,11 +80,19 @@ public:
         double cx, double cy, double cz,
         double yaw_deg, double pitch_deg, double roll_deg,
         double hfov_deg, double vfov_deg,
-        int outW, int outH);
+        int outW, int outH,
+        double northPanoramaDeg = 180.0,
+        bool flipVertical = false);
 
     // Helper: ray intersection with unit sphere.
     static bool raySphereIntersection(const double origin[3], const double dir[3],
         double& hit_u, double& hit_v);
+
+	static void cameraToPanoramaXYZ(
+        double cameraX, double cameraY, double cameraZ,
+        double& panoX, double& panoY, double& panoZ);
+
+    static double applyNorthPanoramaOffset(double worldU, double northPanoramaDeg);
 };
 
 #endif // PANORAMA_PROCESSOR_H

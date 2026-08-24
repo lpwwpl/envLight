@@ -1,7 +1,8 @@
-﻿#include "vtk_scene.h"
+#include "vtk_scene.h"
+#include "CameraTransform.h"
+
 #include <vtkRenderer.h>
 #include <vtkRenderWindow.h>
-#include <vtkRenderWindowInteractor.h>
 #include <vtkSphereSource.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkProperty.h>
@@ -12,148 +13,65 @@
 #include <vtkPoints.h>
 #include <vtkCellArray.h>
 #include <vtkPolyData.h>
-#include <vtkPolyLine.h>
-#include <cmath>
-#include <QImage>
 #include <vtkTexture.h>
 #include <vtkImageData.h>
-#include <vtkTextureMapToSphere.h>
-#include <vtkTransformTextureCoords.h>
+#include <vtkPointData.h>
+#include <vtkFloatArray.h>
+#include <vtkMatrix4x4.h>
+#include <vtkTransform.h>
+
+#include <QImage>
 #include <QPainter>
+
+#include <algorithm>
+#include <cmath>
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// 辅助函数：纹理坐标转世界坐标（单位球面）
-static void uvToWorld(double u, double v, double& x, double& y, double& z) {
-    double theta = v * M_PI;
-    double phi = u * 2.0 * M_PI;
-    x = sin(theta) * cos(phi);
-    y = cos(theta);
-    z = sin(theta) * sin(phi);
-}
-// 射线与单位球面求交
-static bool raySphereIntersection(const double origin[3], const double dir[3],
-    double& hit_u, double& hit_v) {
-    double a = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
-    double b = 2.0 * (origin[0] * dir[0] + origin[1] * dir[1] + origin[2] * dir[2]);
-    double c = origin[0] * origin[0] + origin[1] * origin[1] + origin[2] * origin[2] - 1.0;
-    double disc = b * b - 4.0 * a * c;
+namespace {
+
+static bool raySphereIntersectionPoint(
+    const double origin[3],
+    const double dir[3],
+    double hit[3])
+{
+    const double a = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
+    const double b = 2.0 * (origin[0] * dir[0] + origin[1] * dir[1] + origin[2] * dir[2]);
+    const double c = origin[0] * origin[0] + origin[1] * origin[1] + origin[2] * origin[2] - 1.0;
+    const double disc = b * b - 4.0 * a * c;
     if (disc < 0.0) return false;
-    double sqrt_disc = sqrt(disc);
-    double t1 = (-b - sqrt_disc) / (2.0 * a);
-    double t2 = (-b + sqrt_disc) / (2.0 * a);
-    double t = (t1 > 1e-6) ? t1 : ((t2 > 1e-6) ? t2 : -1.0);
+
+    const double sqrtDisc = std::sqrt(disc);
+    const double t1 = (-b - sqrtDisc) / (2.0 * a);
+    const double t2 = (-b + sqrtDisc) / (2.0 * a);
+    const double t = (t1 > 1e-6) ? t1 : ((t2 > 1e-6) ? t2 : -1.0);
     if (t <= 1e-6) return false;
-    double hit_x = origin[0] + t * dir[0];
-    double hit_y = origin[1] + t * dir[1];
-    double hit_z = origin[2] + t * dir[2];
-    double theta = acos(hit_y);
-    double phi = atan2(hit_x, hit_z);
-    hit_u = (phi + M_PI) / (2.0 * M_PI);
-    hit_v = theta / M_PI;
-    return true;
-}
-// 射线与单位球面求交
-static bool raySphereIntersection(const double origin[3], const double dir[3], double hit[3]) {
-    double a = dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2];
-    double b = 2.0 * (origin[0] * dir[0] + origin[1] * dir[1] + origin[2] * dir[2]);
-    double c = origin[0] * origin[0] + origin[1] * origin[1] + origin[2] * origin[2] - 1.0;
-    double disc = b * b - 4.0 * a * c;
-    if (disc < 0) return false;
-    double sqrt_disc = sqrt(disc);
-    double t1 = (-b - sqrt_disc) / (2.0 * a);
-    double t2 = (-b + sqrt_disc) / (2.0 * a);
-    double t = (t1 > 1e-6) ? t1 : ((t2 > 1e-6) ? t2 : -1.0);
-    if (t <= 1e-6) return false;
+
     hit[0] = origin[0] + t * dir[0];
     hit[1] = origin[1] + t * dir[1];
     hit[2] = origin[2] + t * dir[2];
     return true;
 }
 
-// 创建线段（带管状效果）
-static vtkSmartPointer<vtkActor> createLineSegment(const double p1[3], const double p2[3],
-    double r, double g, double b, double width = 2.0) {
+static vtkSmartPointer<vtkActor> createLineSegment(
+    const double p1[3], const double p2[3],
+    double r, double g, double b,
+    double width = 2.0)
+{
     vtkSmartPointer<vtkLineSource> line = vtkSmartPointer<vtkLineSource>::New();
     line->SetPoint1(p1[0], p1[1], p1[2]);
     line->SetPoint2(p2[0], p2[1], p2[2]);
+
     vtkSmartPointer<vtkTubeFilter> tube = vtkSmartPointer<vtkTubeFilter>::New();
     tube->SetInputConnection(line->GetOutputPort());
     tube->SetRadius(0.008);
     tube->SetNumberOfSides(6);
+
     vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
     mapper->SetInputConnection(tube->GetOutputPort());
-    vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
-    actor->SetMapper(mapper);
-    actor->GetProperty()->SetColor(r, g, b);
-    return actor;
-}
 
-// 创建小球体
-static vtkSmartPointer<vtkActor> createSphereActor(double cx, double cy, double cz,
-    double radius, double r, double g, double b) {
-    vtkSmartPointer<vtkSphereSource> sphere = vtkSmartPointer<vtkSphereSource>::New();
-    sphere->SetCenter(cx, cy, cz);
-    sphere->SetRadius(radius);
-    sphere->SetThetaResolution(20);
-    sphere->SetPhiResolution(20);
-    vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputConnection(sphere->GetOutputPort());
-    vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
-    actor->SetMapper(mapper);
-    actor->GetProperty()->SetColor(r, g, b);
-    return actor;
-}
-
-// 创建球面上的矩形框（由经纬线构成）
-static vtkSmartPointer<vtkActor> createSphereRectangle(double u0, double u1, double v0, double v1,
-    double r, double g, double b, double width = 2.0) {
-    const int steps = 40;
-    vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
-    vtkSmartPointer<vtkCellArray> lines = vtkSmartPointer<vtkCellArray>::New();
-
-    auto addLine = [&](double u_start, double u_end, double v_fixed) {
-        vtkSmartPointer<vtkPolyLine> polyLine = vtkSmartPointer<vtkPolyLine>::New();
-        for (int i = 0; i <= steps; ++i) {
-            double t = (double)i / steps;
-            double u = u_start + t * (u_end - u_start);
-            double x, y, z;
-            uvToWorld(u, v_fixed, x, y, z);
-            vtkIdType id = points->InsertNextPoint(x, y, z);
-            polyLine->GetPointIds()->InsertNextId(id);
-        }
-        lines->InsertNextCell(polyLine);
-    };
-    auto addVLine = [&](double u_fixed, double v_start, double v_end) {
-        vtkSmartPointer<vtkPolyLine> polyLine = vtkSmartPointer<vtkPolyLine>::New();
-        for (int i = 0; i <= steps; ++i) {
-            double t = (double)i / steps;
-            double v = v_start + t * (v_end - v_start);
-            double x, y, z;
-            uvToWorld(u_fixed, v, x, y, z);
-            vtkIdType id = points->InsertNextPoint(x, y, z);
-            polyLine->GetPointIds()->InsertNextId(id);
-        }
-        lines->InsertNextCell(polyLine);
-    };
-
-    if (u0 > u1) { // 跨越经度边界
-        addLine(u0, 1.0, v0); addLine(u0, 1.0, v1);
-        addVLine(u0, v0, v1); addVLine(1.0, v0, v1);
-        addLine(0.0, u1, v0); addLine(0.0, u1, v1);
-        addVLine(0.0, v0, v1); addVLine(u1, v0, v1);
-    }
-    else {
-        addLine(u0, u1, v0); addLine(u0, u1, v1);
-        addVLine(u0, v0, v1); addVLine(u1, v0, v1);
-    }
-
-    vtkSmartPointer<vtkPolyData> polyData = vtkSmartPointer<vtkPolyData>::New();
-    polyData->SetPoints(points);
-    polyData->SetLines(lines);
-    vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputData(polyData);
     vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
     actor->SetMapper(mapper);
     actor->GetProperty()->SetColor(r, g, b);
@@ -161,68 +79,132 @@ static vtkSmartPointer<vtkActor> createSphereRectangle(double u0, double u1, dou
     return actor;
 }
 
-// ==================== VTKSceneWidget 实现 ====================
+static vtkSmartPointer<vtkActor> createSphereActor(
+    double cx, double cy, double cz,
+    double radius,
+    double r, double g, double b)
+{
+    vtkSmartPointer<vtkSphereSource> sphere = vtkSmartPointer<vtkSphereSource>::New();
+    sphere->SetCenter(cx, cy, cz);
+    sphere->SetRadius(radius);
+    sphere->SetThetaResolution(20);
+    sphere->SetPhiResolution(20);
+
+    vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    mapper->SetInputConnection(sphere->GetOutputPort());
+
+    vtkSmartPointer<vtkActor> actor = vtkSmartPointer<vtkActor>::New();
+    actor->SetMapper(mapper);
+    actor->GetProperty()->SetColor(r, g, b);
+    return actor;
+}
+
+// Build a textured unit sphere directly in ENU world coordinates.
+// The mesh seam is deliberately placed at the SOURCE panorama seam, so an
+// arbitrary North-position offset never interpolates across u=0/1 incorrectly.
+static vtkSmartPointer<vtkPolyData> buildENUPanoramaSphere(double northPanoramaDeg)
+{
+    constexpr int azimuthSegments = 160;
+    constexpr int zenithSegments = 80;
+
+    double northU = std::fmod(northPanoramaDeg, 360.0) / 360.0;
+    if (northU < 0.0) northU += 1.0;
+    const double offset = northU - 0.5;
+
+    vtkSmartPointer<vtkPoints> points = vtkSmartPointer<vtkPoints>::New();
+    vtkSmartPointer<vtkFloatArray> tcoords = vtkSmartPointer<vtkFloatArray>::New();
+    tcoords->SetName("PanoramaUV");
+    tcoords->SetNumberOfComponents(2);
+
+    for (int j = 0; j <= zenithSegments; ++j) {
+        const double v = static_cast<double>(j) / zenithSegments;
+        const double theta = v * M_PI;
+        const double horizontal = std::sin(theta);
+        const double up = std::cos(theta);
+
+        for (int i = 0; i <= azimuthSegments; ++i) {
+            const double sourceU = static_cast<double>(i) / azimuthSegments;
+
+            double worldU = sourceU - offset;
+            worldU = std::fmod(worldU, 1.0);
+            if (worldU < 0.0) worldU += 1.0;
+
+            const double azimuth = worldU * 2.0 * M_PI - M_PI;
+            const double east = horizontal * std::sin(azimuth);
+            const double north = horizontal * std::cos(azimuth);
+
+            points->InsertNextPoint(east, north, up);
+            const float uv[2] = {
+                static_cast<float>(sourceU),
+                static_cast<float>(v)
+            };
+            tcoords->InsertNextTuple(uv);
+        }
+    }
+
+    vtkSmartPointer<vtkCellArray> polys = vtkSmartPointer<vtkCellArray>::New();
+    const int stride = azimuthSegments + 1;
+    for (int j = 0; j < zenithSegments; ++j) {
+        for (int i = 0; i < azimuthSegments; ++i) {
+            const vtkIdType a = j * stride + i;
+            const vtkIdType b = a + 1;
+            const vtkIdType c = (j + 1) * stride + i + 1;
+            const vtkIdType d = (j + 1) * stride + i;
+
+            vtkIdType tri1[3] = { a, b, c };
+            vtkIdType tri2[3] = { a, c, d };
+            polys->InsertNextCell(3, tri1);
+            polys->InsertNextCell(3, tri2);
+        }
+    }
+
+    vtkSmartPointer<vtkPolyData> poly = vtkSmartPointer<vtkPolyData>::New();
+    poly->SetPoints(points);
+    poly->SetPolys(polys);
+    poly->GetPointData()->SetTCoords(tcoords);
+    return poly;
+}
+
+} // namespace
+
 VTKSceneWidget::VTKSceneWidget(QWidget* parent)
     : QVTKOpenGLStereoWidget(parent)
     , m_cx(0.5), m_cy(0.2), m_cz(0.3)
-    , m_yaw(30), m_pitch(20), m_roll(0)
-    , m_hfov(90), m_vfov(60), m_outW(800), m_outH(600)
+    , m_yaw(30.0), m_pitch(20.0), m_roll(0.0)
+    , m_hfov(90.0), m_vfov(60.0)
+    , m_outW(800), m_outH(600)
+    , m_northPanoramaDeg(180.0)
+    , m_flipVertical(false)
 {
     setupScene();
 }
 
 VTKSceneWidget::~VTKSceneWidget() = default;
 
-void VTKSceneWidget::setupScene() {
+void VTKSceneWidget::setupScene()
+{
     m_renderer = vtkSmartPointer<vtkRenderer>::New();
     m_renderer->SetBackground(0.1, 0.1, 0.2);
     this->renderWindow()->AddRenderer(m_renderer);
 
-    // 带全景纹理的球体。
-    // 项目自己的全景坐标约定是：+Y 为北极、+Z 对应 panorama u=0.5。
-    // vtkTextureMapToSphere 默认以 +Z 为北极，因此先生成标准球面 UV，
-    // 再将纹理经度平移 0.75，并把 actor 绕 X 轴旋转 -90 度与项目坐标系对齐。
-    m_sphereSource = vtkSmartPointer<vtkSphereSource>::New();
-    m_sphereSource->SetRadius(1.0);
-    m_sphereSource->SetThetaResolution(160);
-    m_sphereSource->SetPhiResolution(80);
-
-    vtkSmartPointer<vtkTextureMapToSphere> textureMap =
-        vtkSmartPointer<vtkTextureMapToSphere>::New();
-    textureMap->SetInputConnection(m_sphereSource->GetOutputPort());
-    textureMap->AutomaticSphereGenerationOff();
-    textureMap->SetCenter(0.0, 0.0, 0.0);
-    textureMap->PreventSeamOff(); // s 按 0..1 连续绕完整 360 度
-
-    vtkSmartPointer<vtkTransformTextureCoords> textureTransform =
-        vtkSmartPointer<vtkTransformTextureCoords>::New();
-    textureTransform->SetInputConnection(textureMap->GetOutputPort());
-    // 使 +Z 世界方向落在全景图中央 u=0.5，并把接缝放在 -Z。
-    textureTransform->SetPosition(0.75, 0.0, 0.0);
-
-    vtkSmartPointer<vtkPolyDataMapper> mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputConnection(textureTransform->GetOutputPort());
+    // Textured world sphere: native VTK XYZ now IS ENU XYZ.
+    vtkSmartPointer<vtkPolyDataMapper> sphereMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    sphereMapper->SetInputData(buildENUPanoramaSphere(m_northPanoramaDeg));
 
     m_sphereActor = vtkSmartPointer<vtkActor>::New();
-    m_sphereActor->SetMapper(mapper);
-    m_sphereActor->RotateX(-90.0); // vtk +Z 北极 -> 项目 +Y 北极
+    m_sphereActor->SetMapper(sphereMapper);
     m_sphereActor->GetProperty()->SetColor(1.0, 1.0, 1.0);
     m_sphereActor->GetProperty()->SetOpacity(0.65);
-    // 纹理作为“显示图”，关闭光照可避免球面光照再次改变其颜色。
     m_sphereActor->GetProperty()->LightingOff();
 
-    // 创建纹理对象。HDR/EXR 仍由 m_panorama 保存 float；这里只使用 tone-mapped 8-bit 预览。
     m_texture = vtkSmartPointer<vtkTexture>::New();
     m_texture->InterpolateOn();
-    m_texture->RepeatOn();              // 经度方向跨 0/1 接缝重复
-    m_texture->MipmapOff();             // keep VTK 9.1 texture upload path simple
-
-    // Do not attach an empty texture here: setupScene() renders before a panorama is loaded.
-    // Once sphere TCoords exist, VTK 9.1 may try to upload that empty texture and dereference null input.
+    m_texture->RepeatOn();
+    m_texture->MipmapOff();
     m_sphereActor->SetTexture(nullptr);
     m_renderer->AddActor(m_sphereActor);
 
-    // 线框球体（增强立体感）
+    // ENU wire sphere. vtkSphereSource is already +Z-up, exactly matching ENU Up.
     vtkSmartPointer<vtkSphereSource> wireSphere = vtkSmartPointer<vtkSphereSource>::New();
     wireSphere->SetRadius(1.01);
     wireSphere->SetThetaResolution(48);
@@ -231,23 +213,31 @@ void VTKSceneWidget::setupScene() {
     wireMapper->SetInputConnection(wireSphere->GetOutputPort());
     vtkSmartPointer<vtkActor> wireActor = vtkSmartPointer<vtkActor>::New();
     wireActor->SetMapper(wireMapper);
-    wireActor->RotateX(-90.0);
     wireActor->GetProperty()->SetColor(0.9, 0.9, 0.9);
     wireActor->GetProperty()->SetRepresentationToWireframe();
     m_renderer->AddActor(wireActor);
 
-    // 坐标轴
-    vtkSmartPointer<vtkAxesActor> axes = vtkSmartPointer<vtkAxesActor>::New();
-    axes->SetTotalLength(1.2, 1.2, 1.2);
-    m_renderer->AddActor(axes);
+    // Large, fixed ENU world axes.
+    m_worldAxes = vtkSmartPointer<vtkAxesActor>::New();
+    m_worldAxes->SetTotalLength(1.35, 1.35, 1.35);
+    m_worldAxes->SetXAxisLabelText("E");
+    m_worldAxes->SetYAxisLabelText("N");
+    m_worldAxes->SetZAxisLabelText("U");
+    m_renderer->AddActor(m_worldAxes);
 
-    // 相机视角
+    // Small Camera-local axes.  They are transformed on every RPY/position update.
+    m_cameraAxes = vtkSmartPointer<vtkAxesActor>::New();
+    m_cameraAxes->SetTotalLength(0.28, 0.28, 0.28);
+    m_cameraAxes->SetXAxisLabelText("Xc");
+    m_cameraAxes->SetYAxisLabelText("Yc");
+    m_cameraAxes->SetZAxisLabelText("Zc");
+    m_renderer->AddActor(m_cameraAxes);
+
     m_renderer->GetActiveCamera()->SetPosition(2.5, 1.5, 2.0);
-    m_renderer->GetActiveCamera()->SetFocalPoint(0, 0, 0);
-    m_renderer->GetActiveCamera()->SetViewUp(0, 1, 0);
+    m_renderer->GetActiveCamera()->SetFocalPoint(0.0, 0.0, 0.0);
+    m_renderer->GetActiveCamera()->SetViewUp(0.0, 0.0, 1.0); // ENU Up
     m_renderer->ResetCameraClippingRange();
 
-    // 初始化动态 actors
     m_roiActor = nullptr;
     m_cameraActor = nullptr;
     for (int i = 0; i < 4; ++i) {
@@ -255,17 +245,24 @@ void VTKSceneWidget::setupScene() {
         m_rectEdges[i] = nullptr;
     }
 
-    // 初始更新一次（使用默认参数）
     updateROIAndRay();
     updatePerspective();
 }
 
-void VTKSceneWidget::setPanorama(const HDRImage& img) {
-    m_panorama = img;
+void VTKSceneWidget::updateSphereGeometryForNorth()
+{
+    if (!m_sphereActor) return;
+    vtkPolyDataMapper* mapper = vtkPolyDataMapper::SafeDownCast(m_sphereActor->GetMapper());
+    if (!mapper) return;
+    mapper->SetInputData(buildENUPanoramaSphere(m_northPanoramaDeg));
+    mapper->Modified();
+}
 
-    // Build the display texture only when the panorama changes. HDR calculations keep
-    // using m_panorama; this cached 8-bit image is strictly for VTK visualization.
+void VTKSceneWidget::setPanorama(const HDRImage& img)
+{
+    m_panorama = img;
     m_panoramaDisplay = PanoramaProcessor::toneMapForDisplay(m_panorama, 1.0f, 2.2f);
+
     if (m_panoramaDisplay.width > 0 && m_panoramaDisplay.height > 0) {
         m_textureImage = vtkSmartPointer<vtkImageData>::New();
         m_textureImage->SetDimensions(m_panoramaDisplay.width, m_panoramaDisplay.height, 1);
@@ -274,114 +271,117 @@ void VTKSceneWidget::setPanorama(const HDRImage& img) {
         for (int y = 0; y < m_panoramaDisplay.height; ++y) {
             for (int x = 0; x < m_panoramaDisplay.width; ++x) {
                 const sRGB& c = m_panoramaDisplay.at(x, y);
-                unsigned char* pixel = static_cast<unsigned char*>(m_textureImage->GetScalarPointer(x, y, 0));
+                unsigned char* pixel = static_cast<unsigned char*>(
+                    m_textureImage->GetScalarPointer(x, y, 0));
                 pixel[0] = static_cast<unsigned char>(c.r);
                 pixel[1] = static_cast<unsigned char>(c.g);
                 pixel[2] = static_cast<unsigned char>(c.b);
             }
         }
+
         m_textureImage->Modified();
         m_texture->SetInputData(m_textureImage);
         m_texture->SetColorModeToDirectScalars();
         m_texture->Modified();
         m_texture->Update();
-
-        // Attach the texture only after a valid vtkImageData input exists.
         m_sphereActor->SetTexture(m_texture);
     }
 
+    updateSphereGeometryForNorth();
     this->renderWindow()->Render();
     updatePerspective();
 }
-void VTKSceneWidget::setCameraParameters(double cx, double cy, double cz,
+
+void VTKSceneWidget::setCameraParameters(
+    double cx, double cy, double cz,
     double yaw, double pitch, double roll,
-    double hfov, double vfov, int outW, int outH) {
+    double hfov, double vfov,
+    int outW, int outH,
+    double northPanoramaDeg,
+    bool flipVertical)
+{
     m_cx = cx; m_cy = cy; m_cz = cz;
     m_yaw = yaw; m_pitch = pitch; m_roll = roll;
     m_hfov = hfov; m_vfov = vfov;
     m_outW = outW; m_outH = outH;
+    m_flipVertical = flipVertical;
+
+    if (std::abs(m_northPanoramaDeg - northPanoramaDeg) > 1e-9) {
+        m_northPanoramaDeg = northPanoramaDeg;
+        updateSphereGeometryForNorth();
+    }
 
     updateROIAndRay();
     updatePerspective();
-
     this->renderWindow()->Render();
 }
 
-void VTKSceneWidget::updatePerspective() {
+void VTKSceneWidget::updatePerspective()
+{
     if (m_panorama.width == 0) return;
 
-    // Perspective generation remains scene-linear floating point.
     HDRImage perspectiveHDR = PanoramaProcessor::perspectiveFromPanorama(
-        m_panorama, m_cx, m_cy, m_cz, m_yaw, m_pitch, m_roll,
-        m_hfov, m_vfov, m_outW, m_outH, 2); // 2x2 anti-aliasing
+        m_panorama,
+        m_cx, m_cy, m_cz,
+        m_yaw, m_pitch, m_roll,
+        m_hfov, m_vfov,
+        m_outW, m_outH,
+        2,
+        m_northPanoramaDeg,
+        m_flipVertical);
 
-    // Convert only the UI preview to 8-bit sRGB.
     Image perspective = PanoramaProcessor::toneMapForDisplay(perspectiveHDR, 1.0f, 2.2f);
     QImage qimg(perspective.width, perspective.height, QImage::Format_RGB888);
     for (int y = 0; y < perspective.height; ++y) {
         for (int x = 0; x < perspective.width; ++x) {
             const sRGB& c = perspective.at(x, y);
-            qimg.setPixel(x, y, qRgb(static_cast<int>(c.r), static_cast<int>(c.g), static_cast<int>(c.b)));
+            qimg.setPixel(x, y, qRgb(
+                static_cast<int>(c.r),
+                static_cast<int>(c.g),
+                static_cast<int>(c.b)));
         }
     }
-
-    this->renderWindow()->Render();
 
     emit perspectiveViewReady(qimg);
 }
 
-void VTKSceneWidget::updateROIAndRay() {
-    // 计算旋转矩阵
-    double yaw_rad = m_yaw * M_PI / 180.0;
-    double pitch_rad = m_pitch * M_PI / 180.0;
-    double roll_rad = m_roll * M_PI / 180.0;
-    double cy = cos(yaw_rad), sy = sin(yaw_rad);
-    double cp = cos(pitch_rad), sp = sin(pitch_rad);
-    double cr = cos(roll_rad), sr = sin(roll_rad);
-    double R[3][3] = {
-        { cy * cp,  cy * sp * sr - sy * cr,  cy * sp * cr + sy * sr },
-        { sy * cp,  sy * sp * sr + cy * cr,  sy * sp * cr - cy * sr },
-        { -sp,    cp * sr,              cp * cr }
+void VTKSceneWidget::updateROIAndRay()
+{
+    CameraTransform::RayContext rayCtx;
+    const bool contextOk = CameraTransform::buildRayContext(
+        m_cx, m_cy, m_cz,
+        m_yaw, m_pitch, m_roll,
+        m_hfov, m_vfov,
+        m_outW, m_outH,
+        m_flipVertical,
+        rayCtx);
+
+    const std::pair<double, double> corners[4] = {
+        {0.0, 0.0},
+        {m_outW - 1.0, 0.0},
+        {0.0, m_outH - 1.0},
+        {m_outW - 1.0, m_outH - 1.0}
     };
 
-    // 焦距
-    double hfov_rad = m_hfov * M_PI / 180.0;
-    double focalX = (m_outW / 2.0) / tan(hfov_rad / 2.0);
-    double focalY = (m_vfov > 0) ? (m_outH / 2.0) / tan(m_vfov * M_PI / 180.0 / 2.0)
-        : focalX * (double(m_outH) / m_outW);
-    double halfW = m_outW / 2.0;
-    double halfH = m_outH / 2.0;
-    double origin[3] = { m_cx, m_cy, m_cz };
+    double hitPoints[4][3]{};
+    bool ok = contextOk;
 
-    // 四个角点像素坐标
-    std::pair<double, double> corners[4] = { {0,0}, {m_outW - 1,0}, {0,m_outH - 1}, {m_outW - 1,m_outH - 1} };
-    double hitPoints[4][3];
-    bool ok = true;
-    for (int i = 0; i < 4; ++i) {
-        double x = corners[i].first;
-        double y = corners[i].second;
-        double nx = (x - halfW) / focalX;
-        double ny = (y - halfH) / focalY;
-        double nz = 1.0;
-        double len = sqrt(nx * nx + ny * ny + nz * nz);
-        if (len < 1e-6) { ok = false; break; }
-        nx /= len; ny /= len; nz /= len;
-
-        double wx = R[0][0] * nx + R[0][1] * ny + R[0][2] * nz;
-        double wy = R[1][0] * nx + R[1][1] * ny + R[1][2] * nz;
-        double wz = R[2][0] * nx + R[2][1] * ny + R[2][2] * nz;
-        len = sqrt(wx * wx + wy * wy + wz * wz);
-        if (len < 1e-6) { ok = false; break; }
-        wx /= len; wy /= len; wz /= len;
-
-        double dir[3] = { wx, wy, wz };
-        if (!raySphereIntersection(origin, dir, hitPoints[i])) {
-            ok = false;
-            break;
+    if (ok) {
+        for (int i = 0; i < 4; ++i) {
+            double dirENU[3];
+            if (!CameraTransform::pixelToENUDirection(
+                    rayCtx,
+                    corners[i].first,
+                    corners[i].second,
+                    dirENU) ||
+                !raySphereIntersectionPoint(rayCtx.originENU, dirENU, hitPoints[i]))
+            {
+                ok = false;
+                break;
+            }
         }
     }
 
-    // 移除旧的动态 actors
     if (m_cameraActor) m_renderer->RemoveActor(m_cameraActor);
     for (int i = 0; i < 4; ++i) {
         if (m_rayActors[i]) m_renderer->RemoveActor(m_rayActors[i]);
@@ -389,33 +389,52 @@ void VTKSceneWidget::updateROIAndRay() {
     }
     if (m_roiActor) m_renderer->RemoveActor(m_roiActor);
 
-    // 相机小球体
-    m_cameraActor = createSphereActor(m_cx, m_cy, m_cz, 0.05, 1.0, 0.2, 0.2);
+    // Camera marker location: UI X/Y/Z are local translations, therefore the
+    // displayed world location is rayCtx.originENU.
+    m_cameraActor = createSphereActor(
+        rayCtx.originENU[0], rayCtx.originENU[1], rayCtx.originENU[2],
+        0.045, 1.0, 0.2, 0.2);
     m_renderer->AddActor(m_cameraActor);
 
+    // Transform the small Xc/Yc/Zc axes into ENU and translate them to the
+    // camera's ENU world position.
+    vtkSmartPointer<vtkMatrix4x4> cameraMatrix = vtkSmartPointer<vtkMatrix4x4>::New();
+    cameraMatrix->Identity();
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c)
+            cameraMatrix->SetElement(r, c, rayCtx.cameraToENU[r][c]);
+        cameraMatrix->SetElement(r, 3, rayCtx.originENU[r]);
+    }
+
+    vtkSmartPointer<vtkTransform> cameraTransform = vtkSmartPointer<vtkTransform>::New();
+    cameraTransform->SetMatrix(cameraMatrix);
+    m_cameraAxes->SetUserTransform(cameraTransform);
 
     if (ok) {
-        // 射线（绿色）
         for (int i = 0; i < 4; ++i) {
-            m_rayActors[i] = createLineSegment(origin, hitPoints[i], 0.2, 1.0, 0.2, 2.0);
+            m_rayActors[i] = createLineSegment(
+                rayCtx.originENU, hitPoints[i],
+                0.2, 1.0, 0.2, 2.0);
             m_renderer->AddActor(m_rayActors[i]);
         }
-        // 角点连线矩形（绿色）
-        int order[5] = { 0,1,3,2,0 };
+
+        const int order[5] = {0, 1, 3, 2, 0};
         for (int i = 0; i < 4; ++i) {
-            int idx1 = order[i];
-            int idx2 = order[i + 1];
-            m_rectEdges[i] = createLineSegment(hitPoints[idx1], hitPoints[idx2], 0.2, 1.0, 0.2, 2.5);
+            m_rectEdges[i] = createLineSegment(
+                hitPoints[order[i]], hitPoints[order[i + 1]],
+                0.2, 1.0, 0.2, 2.5);
             m_renderer->AddActor(m_rectEdges[i]);
         }
     }
 
-    // 刷新渲染
+    m_renderer->ResetCameraClippingRange();
     this->renderWindow()->Render();
 }
 
-
-PanoramaLabel::PanoramaLabel(QWidget* parent) : QLabel(parent), m_hasCorners(false)
+PanoramaLabel::PanoramaLabel(QWidget* parent)
+    : QLabel(parent)
+    , m_hasCorners(false)
+    , m_northDirectionDeg(180.0)
 {
     setAlignment(Qt::AlignCenter);
     setMinimumSize(400, 200);
@@ -453,6 +472,14 @@ void PanoramaLabel::clearCorners()
     update();
 }
 
+void PanoramaLabel::setNorthDirectionDegrees(double degrees)
+{
+    m_northDirectionDeg = std::fmod(degrees, 360.0);
+    if (m_northDirectionDeg < 0.0)
+        m_northDirectionDeg += 360.0;
+    update();
+}
+
 void PanoramaLabel::paintEvent(QPaintEvent* event)
 {
     if (m_pixmap.isNull()) {
@@ -466,6 +493,33 @@ void PanoramaLabel::paintEvent(QPaintEvent* event)
     int x = (width() - scaled.width()) / 2;
     int y = (height() - scaled.height()) / 2;
     painter.drawPixmap(x, y, scaled);
+
+    // Visualize the source-panorama geographic directions.  This follows the
+    // same convention used by PanoramaProcessor::applyNorthPanoramaOffset():
+    // northDirectionDeg is the horizontal SOURCE-image position of North,
+    // where 0/360 is the panorama seam and 180 is the image center.
+    {
+        const double imgW = static_cast<double>(scaled.width());
+        const double imgH = static_cast<double>(scaled.height());
+        const char* labels[4] = { "N", "E", "S", "W" };
+
+        QPen markerPen(QColor(255, 220, 40, 220), 1.5, Qt::DashLine);
+        painter.setPen(markerPen);
+
+        QFont f = painter.font();
+        f.setBold(true);
+        painter.setFont(f);
+
+        for (int i = 0; i < 4; ++i) {
+            double deg = std::fmod(m_northDirectionDeg + i * 90.0, 360.0);
+            if (deg < 0.0) deg += 360.0;
+            const double u = deg / 360.0;
+            const double px = x + u * imgW;
+
+            painter.drawLine(QPointF(px, y), QPointF(px, y + imgH));
+            painter.drawText(QPointF(px + 4.0, y + 18.0), labels[i]);
+        }
+    }
 
     if (m_hasCorners && m_corners.size() >= 3) {
         QPolygonF poly;

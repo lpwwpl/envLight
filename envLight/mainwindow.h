@@ -7,6 +7,7 @@
 #include <QPushButton>
 #include <QLabel>
 #include <QComboBox>
+#include <QCheckBox>
 #include "CIEWidget.h"
 #include "panorama_processor.h"
 class QMenuBar;
@@ -37,6 +38,8 @@ private:
     QDoubleSpinBox* m_cxSpin, * m_cySpin, * m_czSpin;
     QDoubleSpinBox* m_yawSpin, * m_pitchSpin, * m_rollSpin;
     QDoubleSpinBox* m_hfovSpin, * m_vfovSpin;
+    QDoubleSpinBox* m_northPanoramaSpin;
+    QCheckBox* m_flipVerticalCheck;
     QSpinBox* m_outWSpin, * m_outHSpin;
     QPushButton* m_loadBtn;
     QLabel* m_perspectiveLabel;
